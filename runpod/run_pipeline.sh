@@ -158,8 +158,7 @@ echo -e "${GREEN}[4/5] データセットのマージとレポート生成...${N
 python merge_outputs.py \
     --config "$CONFIG" \
     --input-dir "$PROJECT_DIR/output/filtered" \
-    --output-filepath "$PROJECT_DIR/output/final/qwen-reasoning-dataset.jsonl" \
-    --report-filepath "$PROJECT_DIR/output/final/dataset_report.json"
+    --output-dir "$PROJECT_DIR/output/final"
 
 # 5. HuggingFace Hub へのアップロード
 echo ""
