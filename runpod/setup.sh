@@ -43,7 +43,10 @@ pip install --no-cache-dir --prefer-binary \
 if ! python3 -c "import vllm" &> /dev/null; then
     echo -e "\n${YELLOW}システムにvLLMが見つかりません。公式のvllm-rocmホイールをインストールします...${NC}"
     # PyPIのAMD公式 vllm-rocm パッケージを利用するためコンパイルは発生しません
-    pip install vllm-rocm
+    # --no-deps を付けることで、Runpodシステム側の構築済みPyTorch環境（ROCm対応）を上書き破壊するのを防ぎます
+    pip install --no-deps vllm-rocm
+    # vllm-rocm 単体で必要な依存関係（torch以外）を後追いで補填（万が一足りない場合）
+    pip install triton==3.6.0 outlines peft fastapi uvicorn gguf prometheus-fastapi-instrumentator
 fi
 
 echo -n "  vLLMバージョン: " && python -c 'import vllm; print(vllm.__version__)'
