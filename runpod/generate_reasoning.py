@@ -173,6 +173,7 @@ class ReasoningGenerator:
             dtype="auto",
             quantization=self.config["model"].get("quantization", None),
             enforce_eager=True,  # メモリ効率のため
+            device="cuda",       # MI300X/ROCm環境でもPyTorchレイヤーではcudaとして認識されるため明示的指定が必須
         )
 
         self.sampling_params = SamplingParams(
