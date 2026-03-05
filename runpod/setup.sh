@@ -33,13 +33,20 @@ source /workspace/venv/bin/activate
 echo -e "\n${GREEN}[3/6] 依存パッケージのインストール (進捗は以下に表示されます)...${NC}"
 pip install --upgrade pip
 
-# MI300X環境で依存関係解決がフリーズする（止まる）のを防ぐため、キャッシュを無視してバイナリを優先
+# 軽量ライブラリ群のインストール
 pip install --no-cache-dir --prefer-binary \
     transformers>=4.48.0 \
     pyyaml \
     tqdm \
     datasets \
     huggingface_hub
+
+# vLLMがシステムに存在しない場合は、AMD ROCm向けのビルド済みWheelから直接インストール
+if ! python3 -c "import vllm" &> /dev/null; then
+    echo -e "\n${YELLOW}システムにvLLMが見つかりません。ROCm 6.0用の最適化済みvLLMをインストールします...${NC}"
+    # ROCm 6.0（Runpod MI300Xの標準）向けの公式Wheel
+    pip install vllm==0.5.4+rocm604 --extra-index-url https://download.pytorch.org/whl/rocm6.0
+fi
 
 echo -n "  vLLMバージョン: " && python -c 'import vllm; print(vllm.__version__)'
 echo -n "  PyTorchバージョン: " && python -c 'import torch; print(torch.__version__)'
