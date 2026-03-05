@@ -174,6 +174,7 @@ class ReasoningGenerator:
             quantization=self.config["model"].get("quantization", None),
             enforce_eager=True,  # メモリ効率のため
             device="cuda",       # MI300X/ROCm環境でもPyTorchレイヤーではcudaとして認識されるため明示的指定が必須
+            rope_scaling={"type": "dynamic", "factor": 2.0},  # Qwen3.5 config.json の rope_scaling 形式相違によるクラッシュを回避
         )
 
         self.sampling_params = SamplingParams(
