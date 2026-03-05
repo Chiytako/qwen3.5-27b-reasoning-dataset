@@ -32,14 +32,6 @@ echo -e "${BLUE} Started: $(date)${NC}"
 echo -e "${BLUE} Project: $PROJECT_DIR${NC}"
 echo -e "${BLUE}==========================================${NC}"
 
-# 仮想環境のアクティベート
-if [ -d "$VENV" ]; then
-    source "$VENV/bin/activate"
-    echo "仮想環境: $VENV"
-else
-    echo "WARNING: 仮想環境が見つかりません。システムPythonを使用します。"
-fi
-
 # GPU確認
 echo ""
 echo -e "${YELLOW}=== GPU状態 ===${NC}"
@@ -138,9 +130,9 @@ MONITOR_PID=$!
 
 # 全プロセスの完了を待つ
 for pid in "${PIDS[@]}"; do
-    wait $pid
+    wait $pid 2>/dev/null || true
 done
-kill $MONITOR_PID
+kill $MONITOR_PID 2>/dev/null || true
 
 echo -e "${GREEN}✓ データ生成完了${NC}"
 
@@ -191,14 +183,11 @@ echo "出力ディレクトリ: $PROJECT_DIR/output/final/"
 echo "レポート: $PROJECT_DIR/output/final/dataset_report.json"
 echo ""
 
-# ステップ5: HuggingFace Hubへのアップロード
+# 5. HuggingFace Hubへのアップロード
 echo "=== Step 5: HuggingFaceアップロード ==="
-if [ "$TOTAL_FINAL" -gt 0 ]; then
+if [ -f "$PROJECT_DIR/output/final/qwen-reasoning-dataset.jsonl" ]; then
     echo "HuggingFace Hubへアップロードを開始します..."
     echo "リポジトリ: $HF_REPO_ID"
-    
-    # 依存パッケージ確認
-    pip install huggingface_hub datasets > /dev/null 2>&1
     
     python upload_to_hf.py \
         --repo-id "$HF_REPO_ID" \
@@ -208,9 +197,9 @@ if [ "$TOTAL_FINAL" -gt 0 ]; then
         --private \
         2>&1 | tee "$LOG_DIR/upload_$TIMESTAMP.log"
         
-    echo "アップロード処理が完了しました。"
+    echo -e "${GREEN}アップロード処理が完了しました。${NC}"
 else
-    echo "最終データセットが0件のため、アップロードをスキップします。"
+    echo -e "${YELLOW}最終データセットが見つからないため、アップロードをスキップします。${NC}"
 fi
 echo ""
-echo "すべてのパイプライン処理が完了しました。"
+echo -e "${GREEN}✓ すべてのパイプライン処理が完了しました。${NC}"
