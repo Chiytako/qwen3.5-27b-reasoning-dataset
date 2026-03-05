@@ -45,8 +45,31 @@ if ! python3 -c "import vllm" &> /dev/null; then
     # PyPIのAMD公式 vllm-rocm パッケージを利用するためコンパイルは発生しません
     # --no-deps を付けることで、Runpodシステム側の構築済みPyTorch環境（ROCm対応）を上書き破壊するのを防ぎます
     pip install --no-deps vllm-rocm
-    # vllm-rocm 単体で必要な依存関係（torch以外）を後追いで補填（万が一足りない場合）
-    pip install triton==3.6.0 outlines peft fastapi uvicorn gguf prometheus-fastapi-instrumentator
+    
+    # vllm-rocm 単体で必要な依存関係（torch以外）を後追いで補填
+    # ログに出力された "requires xxx, which is not installed" のリストを網羅
+    echo -e "\n${GREEN}不足している依存パッケージを補填インストールします...${NC}"
+    pip install \
+        awscli \
+        einops \
+        "lm-format-enforcer==0.10.6" \
+        "mistral-common[opencv]>=1.4.4" \
+        msgspec \
+        "openai>=1.40.0" \
+        partial-json-parser \
+        py-cpuinfo \
+        pytest-asyncio \
+        "ray>=2.10.0" \
+        sentencepiece \
+        "tensorizer>=2.9.0" \
+        "tiktoken>=0.6.0" \
+        "gguf==0.10.0" \
+        "outlines>=0.0.43,<0.1" \
+        triton==3.6.0 \
+        peft \
+        fastapi \
+        uvicorn \
+        prometheus-fastapi-instrumentator
 fi
 
 echo -n "  vLLMバージョン: " && python -c 'import vllm; print(vllm.__version__)'
