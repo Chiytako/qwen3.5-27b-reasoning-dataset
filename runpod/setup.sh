@@ -32,8 +32,9 @@ source /workspace/venv/bin/activate
 # --- 依存パッケージのインストール ---
 echo -e "\n${GREEN}[3/6] 依存パッケージのインストール (進捗は以下に表示されます)...${NC}"
 pip install --upgrade pip
-# 最適化済みvLLMとPyTorchはシステム側を利用し、足りない軽量ライブラリのみインストールします。
-pip install \
+
+# MI300X環境で依存関係解決がフリーズする（止まる）のを防ぐため、キャッシュを無視してバイナリを優先
+pip install --no-cache-dir --prefer-binary \
     transformers>=4.48.0 \
     pyyaml \
     tqdm \
