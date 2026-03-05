@@ -1,0 +1,122 @@
+# =============================================================================
+# Qwen3.5-27B Reasoning Dataset Generation Pipeline Configuration
+# =============================================================================
+
+# --- モデル設定 ---
+model:
+  name: "Qwen/Qwen3.5-27B-AWQ"           # AWQ 4bit量子化版
+  fallback_name: "Qwen/Qwen3.5-27B"       # フルプレシジョン版（大VRAM用）
+  max_model_len: 16384                      # 最大コンテキスト長
+  gpu_memory_utilization: 0.90              # GPU メモリ使用率 (RTX 3090 24GB)
+  dtype: "auto"                             # データ型（AWQは自動）
+  quantization: "awq"                       # 量子化方式
+  trust_remote_code: true
+  enable_thinking: true                     # Qwen3.5 thinking mode有効化
+
+# --- 推論パラメータ ---
+generation:
+  temperature: 0.7
+  top_p: 0.9
+  top_k: 40
+  max_tokens: 8192                          # 最大生成トークン数
+  min_tokens: 256                           # 最小生成トークン数
+  repetition_penalty: 1.05
+  num_samples_per_prompt: 3                 # rejection sampling用: 各プロンプトにN個生成
+  batch_size: 48                            # vLLMバッチサイズ (RTX 3090 24GB)
+
+# --- 並列処理設定 ---
+parallel:
+  num_workers: 6                            # GPU数 = ワーカー数 (RTX 3090 x6)
+  tensor_parallel_size: 1                   # 各ワーカーはGPU1枚
+  samples_per_worker: 167000                # 各ワーカーの担当件数 (1M / 6)
+  checkpoint_interval: 1000                 # N件ごとにチェックポイント保存
+
+# --- データセット設定 ---
+dataset:
+  target_total_samples: 1000000             # 目標生成件数
+  language_ratio:
+    ja: 0.7                                 # 日本語 70%
+    en: 0.3                                 # 英語 30%
+  
+  # ドメイン分布（ツールユーズ重視）
+  domain_distribution:
+    tool_use_api_calling: 0.20              # API/関数呼び出し
+    tool_use_multi_step: 0.15               # 複数ツール連携
+    tool_use_error_handling: 0.08           # エラー処理・リトライ
+    coding_agent: 0.20                      # コーディングエージェント (Opencode/Claude Code風)
+    code_generation: 0.10                   # コード生成（ツール作成含む）
+    math_reasoning: 0.07                    # 数学推論
+    logic_reasoning: 0.06                   # 論理推論
+    science: 0.04                           # 科学推論
+    planning: 0.05                          # 計画・タスク分解
+    general_knowledge: 0.05                 # 一般知識推論
+
+# --- 品質フィルタリング ---
+quality_filter:
+  min_thinking_steps: 3                     # 最小思考ステップ数
+  max_thinking_steps: 50                    # 最大思考ステップ数
+  min_response_tokens: 100                  # 最小回答トークン数
+  max_response_tokens: 6000                 # 最大回答トークン数
+  min_thinking_tokens: 50                   # 最小思考トークン数
+  require_tool_calls: true                  # ツール呼び出しを含む必要あり（ツールユーズドメインのみ）
+  min_tool_calls: 1                         # 最小ツール呼び出し数
+  dedup_similarity_threshold: 0.85          # 重複除去の類似度閾値
+  language_consistency_check: true          # 言語一貫性チェック
+
+# --- 出力設定 ---
+output:
+  base_dir: "./output"
+  raw_dir: "./output/raw"                   # 生のLLM出力
+  filtered_dir: "./output/filtered"         # フィルタ済み
+  final_dir: "./output/final"               # 最終データセット
+  format: "jsonl"                           # 出力形式
+  split_size: 50000                         # ファイルあたりの件数
+  save_rejected: true                       # リジェクトされたデータも保存
+
+# --- ツール定義テンプレート ---
+tool_categories:
+  - name: "web_search"
+    description: "ウェブ検索・情報取得系ツール"
+    tools: ["search_web", "fetch_url", "scrape_page", "search_news"]
+  
+  - name: "file_operations"
+    description: "ファイル操作系ツール"
+    tools: ["read_file", "write_file", "list_directory", "delete_file", "move_file"]
+  
+  - name: "code_execution"
+    description: "コード実行・開発系ツール"
+    tools: ["run_python", "run_bash", "install_package", "debug_code"]
+  
+  - name: "data_processing"
+    description: "データ処理・分析系ツール"
+    tools: ["query_database", "transform_data", "visualize_data", "export_csv"]
+  
+  - name: "communication"
+    description: "コミュニケーション系ツール"
+    tools: ["send_email", "send_message", "create_calendar_event", "translate_text"]
+  
+  - name: "math_computation"
+    description: "数学・計算系ツール"
+    tools: ["calculate", "solve_equation", "plot_graph", "statistical_analysis"]
+  
+  - name: "image_processing"
+    description: "画像処理系ツール"
+    tools: ["generate_image", "resize_image", "ocr_extract", "image_search"]
+  
+  - name: "system_admin"
+    description: "システム管理系ツール"
+    tools: ["check_status", "deploy_service", "monitor_logs", "manage_config"]
+  
+  - name: "coding_agent"
+    description: "コーディングエージェント系ツール（Opencode/Claude Code風）"
+    tools: [
+      "read_file", "write_file", "edit_file", "list_directory",
+      "grep_search", "find_files", "run_command", "view_code_definition",
+      "codebase_search", "browser_action", "ask_user", "task_complete"
+    ]
+
+# --- ログ設定 ---
+logging:
+  level: "INFO"
+  file: "./logs/generation.log"
+  console: true

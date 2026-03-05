@@ -1,0 +1,205 @@
+{
+    "tool_use_api_calling": {
+        "ja": [
+            "明日の東京の天気を調べて、雨なら会議のリマインダーメールを参加者全員に送信してください。",
+            "最新のPythonバージョンを検索して、現在の環境にインストールされているバージョンと比較してください。",
+            "GitHubのトレンドリポジトリから上位5つを取得し、各リポジトリのREADMEを読んで概要をまとめてください。",
+            "「機械学習 最新論文 2026」で検索して、見つかった論文のうち引用数が多いものを3つピックアップしてください。",
+            "ユーザーデータベースから過去30日間にログインしたユーザーの一覧を取得し、CSVとして保存してください。",
+            "社内Wikiで「デプロイ手順」を検索し、見つかったページの内容を読んで手順を箇条書きにまとめてください。",
+            "指定されたURLからJSON APIのレスポンスを取得し、データを整形してファイルに保存してください。",
+            "ニュースサイトから「AI」に関する最新記事を5件取得し、各記事のタイトルと要約を一覧にしてください。",
+            "HuggingFace のモデルハブから text-generation モデルを検索し、ダウンロード数上位3つの詳細を取得してください。",
+            "指定されたREST APIにPOSTリクエストを送信し、レスポンスが成功したかどうかを確認してください。",
+            "外部の翻訳APIを使って、指定された日本語テキストを英語、フランス語、中国語に翻訳してください。",
+            "為替レートAPIから現在のドル円レートを取得し、レートが150円を超えていればSlackに通知してください。",
+            "公開データベースから日本の都道府県別人口データを取得し、人口密度でソートして表示してください。",
+            "OpenWeatherMap APIで世界5都市の天気を同時に取得し、比較表を作成してください。",
+            "指定されたGitリポジトリの最新コミットログ10件を取得し、変更されたファイル一覧とともに表示してください。"
+        ],
+        "en": [
+            "Search for the latest news about AI regulation in the EU and summarize the key points from the top 3 articles.",
+            "Check the status of our production API endpoint and if it's down, send an alert email to the engineering team.",
+            "Fetch the current Bitcoin price from a crypto API and compare it with the price from 24 hours ago.",
+            "Search for Python packages related to 'data validation' and list the top 5 by download count with their descriptions.",
+            "Query the user database for accounts created in the last week and generate a signup report in JSON format.",
+            "Use the GitHub API to search for repositories with more than 10,000 stars that were updated in the last month.",
+            "Fetch weather data for New York, London, and Tokyo, then create a comparison summary.",
+            "Search for academic papers on 'transformer architecture improvements' from 2025-2026 and list the top 5 by citations.",
+            "Check the SSL certificate expiration date for our domain and send a warning if it expires within 30 days.",
+            "Use a geocoding API to convert 5 addresses to coordinates, then calculate the distances between each pair."
+        ]
+    },
+    "tool_use_multi_step": {
+        "ja": [
+            "ウェブから機械学習のチュートリアル記事を探し、その内容をPythonスクリプトに変換して、テスト実行し、結果をレポートとしてまとめてファイルに保存してください。",
+            "データベースから売上データを取得し、Pythonで月別の集計を行い、グラフを生成して、結果をメールで送信してください。",
+            "Markdownファイルを読み込んで、内容を英語に翻訳し、翻訳結果を新しいファイルに保存し、翻訳の品質を検証してください。",
+            "プロジェクトディレクトリ内のすべてのPythonファイルを探し、各ファイルのコード品質をチェックし、問題点をJSONレポートにまとめてください。",
+            "最新のセキュリティ脆弱性情報を検索し、プロジェクトで使用しているパッケージに該当するものがないか確認し、該当する場合は修正コードを生成してください。",
+            "CSVファイルからデータを読み込み、異常値を検出して除去し、統計分析を行い、結果を可視化してPDFレポートとして保存してください。",
+            "論文のURLからテキストを取得し、要約を生成し、引用情報を抽出して、BibTeX形式に変換してファイルに保存してください。",
+            "設定ファイルを読み込んでバリデーションを行い、エラーがあれば修正し、修正後の設定でサービスのステータスを確認してください。",
+            "ログファイルから過去1時間のエラーを抽出し、エラーパターンを分析し、各エラーの根本原因を推定して修正方針をまとめてください。",
+            "複数のAPIエンドポイントからデータを収集し、データを統合・変換して、データベースに格納し、格納結果を検証してください。",
+            "コードリポジトリからTODOコメントを検索し、優先度を付けてタスクリストを作成し、カレンダーに期限付きのイベントとして登録してください。",
+            "ウェブサイトからテーブルデータをスクレイピングし、データクレンジングを行い、SQLiteデータベースに格納し、集計クエリを実行して結果を確認してください。"
+        ],
+        "en": [
+            "Search the web for a Python tutorial on building REST APIs, convert the key concepts into a working Flask application, run the tests, and save the results.",
+            "Extract data from three different CSV files, merge them by a common key field, perform statistical analysis, and generate a summary report as a Markdown file.",
+            "Monitor server logs for the past hour, identify the top error patterns, write a Python script to detect these patterns in real-time, and deploy it.",
+            "Read a JSON configuration file, validate all fields against a schema, fix any issues found, write the corrected config, and restart the relevant service.",
+            "Search for competitor pricing data online, scrape the results, store them in a database, run a comparison analysis, and email the report to stakeholders.",
+            "Fetch code review comments from GitHub, categorize them by severity, generate fix suggestions for critical ones, and create a summary dashboard."
+        ]
+    },
+    "tool_use_error_handling": {
+        "ja": [
+            "存在しないファイルパスからデータを読み込もうとした場合、ディレクトリ一覧から正しいファイルを探し出して読み込んでください。",
+            "データベースクエリがタイムアウトした場合、クエリを最適化して再実行してください。",
+            "APIリクエストが403エラーを返した場合、認証情報を確認し、別のエンドポイントで試してください。",
+            "大量のデータを一度に処理しようとしてメモリエラーが発生した場合、バッチ処理に切り替えて再実行してください。",
+            "UTF-8でファイルを読み込んだ際にデコードエラーが発生した場合、エンコーディングを自動検出して正しく読み込んでください。",
+            "外部サービスが一時的に利用不可の場合、リトライロジックを実装して指数バックオフで再試行してください。",
+            "SQLインジェクションを含む可能性のあるユーザー入力を検出し、サニタイズしてからデータベースクエリを実行してください。",
+            "ネットワーク接続が不安定な環境でファイルをダウンロードする場合、部分ダウンロードの再開機能を使って確実に取得してください。",
+            "JSON形式のレスポンスが期待される場所でHTMLエラーページが返ってきた場合、エラー内容を解析して適切に対処してください。",
+            "Pythonスクリプトの実行中にImportErrorが発生した場合、必要なパッケージを自動インストールして再実行してください。"
+        ],
+        "en": [
+            "When trying to read a file that doesn't exist, search the directory for the correct file and read it instead.",
+            "If a database query times out, optimize the query by adding appropriate indexes and limits, then retry.",
+            "Handle a rate-limited API by implementing exponential backoff and retrying the request.",
+            "When a large data processing task runs out of memory, split it into smaller batches and process them sequentially.",
+            "If an HTTP request returns a 500 error, log the error, wait, retry up to 3 times, and fall back to cached data if all retries fail.",
+            "Handle malformed JSON responses by attempting to fix common issues (trailing commas, unquoted keys) before parsing."
+        ]
+    },
+    "code_generation": {
+        "ja": [
+            "Webスクレイピング用のPythonスクリプトを書いて、指定されたURLから商品情報（名前、価格、評価）を抽出してCSVに保存するコードを実行してください。",
+            "SQLiteデータベースの操作用ユーティリティを作成し、テーブルの作成、データの挿入、クエリの実行、結果のエクスポートができるようにしてください。",
+            "ファイル監視デーモンを作成して、指定ディレクトリに新しいファイルが追加されたら自動的に処理するスクリプトを書いてください。",
+            "REST APIクライアントを作成して、外部APIからデータを取得し、キャッシュ機能付きでローカルに保存するPythonモジュールを実装してください。",
+            "テキストデータの前処理パイプラインを作成してください。正規化、トークン化、ストップワード除去、ステミングの各段階を含むPythonスクリプトを実装して実行してください。",
+            "PDFファイルからテキストを抽出し、セクションごとに分割して、キーワード検索ができるインデックスを構築するツールを作成してください。"
+        ],
+        "en": [
+            "Write a Python script that monitors a log file in real-time, extracts error patterns using regex, and sends notifications when critical errors are detected. Test it with sample data.",
+            "Create a command-line tool that takes a CSV file as input, performs data validation, generates statistics, and outputs a formatted report. Include error handling for malformed data.",
+            "Build a simple task scheduler in Python that can queue tasks, execute them in parallel, handle failures with retry logic, and save results to a JSON file.",
+            "Write a data pipeline script that reads from multiple JSON files, transforms the data using configurable rules, and loads it into an SQLite database with proper schema validation."
+        ]
+    },
+    "coding_agent": {
+        "ja": [
+            "このプロジェクトのsrc/utils.pyにある`parse_config`関数にバグがあるようです。設定ファイルのネストされたキーが正しく読み込まれません。原因を調査して修正してください。",
+            "既存のFlask APIに新しいエンドポイント `/api/v1/users/search` を追加してください。ユーザー名、メールアドレス、作成日の範囲でフィルタリングできるようにしてください。",
+            "テストカバレッジを改善したいです。src/auth/ディレクトリ内のモジュールに対するユニットテストを作成してください。既存のテストパターンに合わせてpytestを使用してください。",
+            "このリポジトリのPythonコードをPython 3.12に対応させてください。非推奨の機能を使っている箇所を見つけて更新してください。",
+            "データベースのマイグレーションスクリプトに問題があります。`alembic upgrade head`を実行するとエラーが発生します。エラーの原因を調べて修正してください。",
+            "レスポンスが遅いAPIエンドポイントがあります。`/api/products`のパフォーマンスをプロファイリングして、ボトルネックを特定し、改善してください。",
+            "Dockerfileを最適化してください。ビルド時間の短縮とイメージサイズの削減を目標にしてください。マルチステージビルドの導入も検討してください。",
+            "CI/CDパイプラインの設定（.github/workflows/ci.yml）を見て、テストが失敗している原因を調査し、修正してください。",
+            "models/user.pyのUserクラスにパスワードリセット機能を実装してください。トークン生成、メール送信、トークン検証のフローを含めてください。既存のコードスタイルに合わせてください。",
+            "既存のRESTful APIをGraphQLに移行する準備として、まずスキーマ定義とリゾルバの雛形を作成してください。",
+            "フロントエンドのReactコンポーネントでメモリリークが発生しています。useEffectのクリーンアップが正しく行われていない箇所を特定し、修正してください。",
+            "ログ出力をstructured loggingに変更してください。既存のprint文やlogging.info呼び出しをJSON形式のstructured logに統一してください。",
+            "WebSocket接続でメッセージの順序が保証されていない問題を修正してください。src/ws/ディレクトリ内のコードを調査して対処してください。",
+            "rate limiterミドルウェアを実装してください。IPアドレスベースで1分間100リクエストの制限を設けてください。Redisを使用したトークンバケットアルゴリズムで実装してください。",
+            "既存のコードベースにType Hintsを追加してください。主要な関数やクラスの引数と戻り値に型アノテーションを追加し、mypyでチェックが通るようにしてください。"
+        ],
+        "en": [
+            "There's a bug in the authentication middleware where JWT tokens aren't being validated correctly after rotation. Investigate the issue in src/middleware/auth.ts and fix it.",
+            "Add pagination support to the existing /api/posts endpoint. Implement cursor-based pagination with configurable page sizes. Follow the existing API patterns in the codebase.",
+            "Refactor the database query layer to use the repository pattern. The current code has SQL queries scattered across controllers. Create a clean abstraction layer.",
+            "The build is failing on the main branch. Investigate the CI logs, find the root cause, fix the issue, and make sure all tests pass.",
+            "Implement a caching layer using Redis for the product catalog API. Add cache invalidation when products are updated. Follow the existing service architecture patterns.",
+            "Write comprehensive integration tests for the payment processing module. Mock external payment gateway calls and test both success and failure scenarios.",
+            "Migrate the codebase from CommonJS (require) to ES Modules (import/export). Update the build configuration and fix any import issues.",
+            "The application has a race condition in the order processing flow. Multiple concurrent requests can create duplicate orders. Find and fix the issue.",
+            "Add OpenAPI/Swagger documentation to all API endpoints. Auto-generate the docs from the existing route handlers and add proper request/response schemas.",
+            "Implement a plugin system that allows third-party extensions to register custom handlers. Use a hook-based architecture similar to webpack plugins."
+        ]
+    },
+    "math_reasoning": {
+        "ja": [
+            "ある会社の売上が毎年15%増加しています。現在の売上が1億円だとすると、5年後の売上はいくらになりますか？また、売上が3億円を超えるのは何年後ですか？",
+            "3つのサイコロを同時に振ったとき、出た目の合計が10以上になる確率を求めてください。",
+            "半径5cmの円に内接する正六角形の面積を求めてください。また、この六角形の各辺の長さも求めてください。",
+            "A地点からB地点まで40kmあります。太郎は時速5kmで歩き、次郎は30分後に時速15kmの自転車で追いかけます。次郎が太郎に追いつくのは出発から何時間何分後ですか？",
+            "f(x) = x³ - 6x² + 9x + 1 の極値を求め、グラフの概形を説明してください。",
+            "100人のクラスで、数学が好きな生徒が60人、理科が好きな生徒が45人、両方好きな生徒が30人います。どちらも好きでない生徒は何人ですか？",
+            "複利計算：年利3%で100万円を20年間運用した場合の最終金額を求めてください。単利の場合との差額も計算してください。",
+            "1から100までの自然数のうち、3の倍数でも5の倍数でもない数の合計を求めてください。"
+        ],
+        "en": [
+            "A rectangular tank measures 2m x 3m x 1.5m. Water flows in at 0.5 cubic meters per minute. How long does it take to fill the tank? If a drain at the bottom leaks 0.05 cubic meters per minute, how does this change?",
+            "Find the probability that in a group of 30 people, at least two share the same birthday. Show the step-by-step calculation.",
+            "A train travels from city A to city B at 60 km/h and returns at 40 km/h. What is the average speed for the entire round trip?",
+            "Calculate the sum of the first 50 terms of the Fibonacci sequence. Also determine which term first exceeds 1 million.",
+            "A cone has a base radius of 4cm and height of 10cm. Calculate its volume and surface area. If the cone is cut by a plane parallel to the base at height 5cm, what is the volume of the smaller cone?"
+        ]
+    },
+    "logic_reasoning": {
+        "ja": [
+            "5人の容疑者A、B、C、D、Eがいます。以下の条件から犯人を特定してください: (1)犯人は1人 (2)AはBと一緒にいた (3)Cは犯行時刻にアリバイが証明されている (4)DはEが犯人だと証言している (5)Eは無実の人は嘘をつかないと主張 (6)犯人は必ず嘘をつく",
+            "ある暗号でASB は CMD に変換されます。同じ規則で HELLO は何に変換されますか？規則を解明してから答えてください。",
+            "4人がそれぞれ違う色(赤、青、緑、黄)の帽子をかぶっています。以下のヒントから各人の帽子の色を特定してください: (1)太郎は赤でも青でもない (2)花子は緑の隣に座っている (3)健太は黄色の帽子の人の向かいに座っている (4)美咲は青い帽子をかぶっている",
+            "3つの箱があり、1つに金貨、1つに銀貨、1つは空です。箱にはラベルが貼ってありますが、すべて間違っています。「金貨」と書かれた箱を開けたら銀貨でした。残りの2つの箱の中身は？",
+            "8つの見た目が同じコインがあり、1つだけ偽物（本物より軽い）です。天秤を2回だけ使って偽物を特定する方法を説明してください。",
+            "レストランで5人が円形テーブルに座ります。以下の制約をすべて満たす座り方を求めてください: (1)AとBは隣り合わない (2)CはDの右隣 (3)Eは Aの向かい側"
+        ],
+        "en": [
+            "Three logicians walk into a bar. The bartender asks 'Does everyone want a drink?' The first logician says 'I don't know.' The second says 'I don't know.' The third says 'Yes.' Explain the reasoning of each logician.",
+            "You have 12 balls, one of which is a different weight (heavier or lighter). Using a balance scale exactly 3 times, determine which ball is different and whether it's heavier or lighter.",
+            "A king decides to test his advisors with a logic puzzle. He tells 3 advisors he will put either a white or black hat on each of their heads. Each can see the others' hats but not their own. He puts white hats on all three. The first two advisors say they can't determine their hat color. The third says 'My hat is white.' Explain why.",
+            "In a village, every person is either a truth-teller or a liar. You meet two villagers, A and B. A says 'At least one of us is a liar.' What can you conclude about A and B?"
+        ]
+    },
+    "science": {
+        "ja": [
+            "水が100°Cで沸騰する理由を分子レベルで説明してください。また、気圧が低い場所（例：富士山頂）では沸点がどう変化するか、その物理的メカニズムも説明してください。",
+            "光合成と呼吸の関係を化学反応式を用いて説明し、地球の炭素循環における役割について論じてください。",
+            "ブラックホールの形成過程と、事象の地平面付近で起こる時間の遅れ（重力的時間遅延）について説明してください。",
+            "mRNAワクチンの作用機序をステップバイステップで説明してください。従来のワクチンとの違いは何ですか？",
+            "量子コンピュータの基本原理（量子ビット、重ね合わせ、量子もつれ）を説明し、古典コンピュータではなぜ解けない問題が解ける可能性があるのか論じてください。"
+        ],
+        "en": [
+            "Explain the process of nuclear fusion in stars, from the proton-proton chain to the CNO cycle. Why do larger stars use different fusion pathways?",
+            "Describe the mechanism of CRISPR-Cas9 gene editing step by step, including how guide RNA works and what types of modifications are possible.",
+            "Explain the physics behind superconductivity, including BCS theory and why it only occurs below critical temperature. What progress has been made toward room-temperature superconductors?",
+            "How does the greenhouse effect work at a molecular level? Explain why CO2 and CH4 are particularly effective greenhouse gases compared to N2 and O2."
+        ]
+    },
+    "planning": {
+        "ja": [
+            "新しいWebアプリケーションの開発プロジェクトを計画してください。技術スタック選定、チーム構成、マイルストーン設定、リスク管理を含めた包括的な計画を立ててください。",
+            "社内の業務効率化のために、現在手動で行っている月次レポート作成を自動化するプロジェクト計画を立ててください。",
+            "3ヶ月以内にオンラインストアを立ち上げるための計画を立ててください。設計、開発、テスト、マーケティング、ローンチの各フェーズを含めてください。",
+            "大規模なデータベースマイグレーション（PostgreSQL → MongoDB）の計画を立ててください。データ整合性の確保、ダウンタイムの最小化、ロールバック戦略を含めてください。",
+            "AI/ML モデルの本番環境へのデプロイパイプラインを設計してください。CI/CD、モデルバージョニング、A/Bテスト、監視を含めた計画にしてください。"
+        ],
+        "en": [
+            "Plan a migration from a monolithic architecture to microservices for a large e-commerce platform. Include service decomposition strategy, data migration plan, and rollback procedures.",
+            "Create a disaster recovery plan for a cloud-hosted SaaS application. Include RPO/RTO targets, backup strategies, failover procedures, and communication plans.",
+            "Design a comprehensive testing strategy for a mobile app, including unit tests, integration tests, E2E tests, performance tests, and security audits."
+        ]
+    },
+    "general_knowledge": {
+        "ja": [
+            "日本の少子高齢化問題について、原因、現状の影響、そして考えられる対策を多角的に分析してください。",
+            "AIの発展が労働市場に与える影響について、短期的（5年以内）と長期的（20年以上）の両方の視点から分析してください。",
+            "暗号通貨とブロックチェーン技術が金融システムに与える影響について、メリットとデメリットの両面から論じてください。",
+            "リモートワークが企業文化、生産性、従業員のメンタルヘルスに与える影響を分析し、最適なハイブリッドワーク戦略を提案してください。",
+            "宇宙開発の歴史を振り返り、現在の民間宇宙企業（SpaceX、Blue Origin等）の取り組みと今後の展望について論じてください。"
+        ],
+        "en": [
+            "Analyze the impact of social media on democracy, considering both positive aspects (citizen engagement) and negative aspects (misinformation, polarization).",
+            "Compare and contrast different approaches to universal healthcare (single-payer, multi-payer, hybrid) with specific country examples.",
+            "Discuss the ethical implications of genetic engineering in humans, covering both therapeutic applications and enhancement possibilities.",
+            "Analyze the global supply chain disruptions of 2020-2024 and their long-term effects on international trade and manufacturing strategies."
+        ]
+    }
+}
