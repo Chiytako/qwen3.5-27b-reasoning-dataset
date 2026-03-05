@@ -1,12 +1,19 @@
 #!/bin/bash
 # =============================================================================
-# パイプライン全体実行ランナー (Runpod RTX 3090 x6)
-# セットアップ → 生成（6並列） → フィルタリング → マージ を一気に実行
+# Qwen3.5-27B Reasoning Dataset Generation Pipeline Runner
+# AMD MI300X 192GB 向け
 # =============================================================================
 set -e
 
+# 色の定義
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
 # 設定
-PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_DIR="/workspace/qwen3.5-27b-reasoning-dataset"
 CONFIG="$PROJECT_DIR/config.yaml"
 VENV="/workspace/venv"
 LOG_DIR="$PROJECT_DIR/logs"
@@ -18,12 +25,12 @@ NUM_WORKERS=1
 HF_TOKEN="${HF_TOKEN:-}"
 HF_REPO_ID="ChiTako/qwen3.5-27b-reasoning-dataset" # ユーザー名ChiTakoとデータセット名
 
-echo "=========================================="
-echo " Reasoning Dataset Generation Pipeline"
-echo " Platform: Runpod (AMD MI300X 192GB x${NUM_WORKERS})"
-echo " Started: $(date)"
-echo " Project: $PROJECT_DIR"
-echo "=========================================="
+echo -e "${BLUE}==========================================${NC}"
+echo -e "${BLUE} Reasoning Dataset Generation Pipeline${NC}"
+echo -e "${BLUE} Platform: Runpod (AMD MI300X 192GB x${NUM_WORKERS})${NC}"
+echo -e "${BLUE} Started: $(date)${NC}"
+echo -e "${BLUE} Project: $PROJECT_DIR${NC}"
+echo -e "${BLUE}==========================================${NC}"
 
 # 仮想環境のアクティベート
 if [ -d "$VENV" ]; then
@@ -35,7 +42,7 @@ fi
 
 # GPU確認
 echo ""
-echo "=== GPU状態 ==="
+echo -e "${YELLOW}=== GPU状態 ===${NC}"
 if command -v rocm-smi &> /dev/null; then
     rocm-smi --showid --showproductname --showmeminfo vram
     DETECTED_GPUS=$(rocm-smi --showid | grep -c "GPU")
@@ -44,23 +51,28 @@ else
     DETECTED_GPUS=$(nvidia-smi --query-gpu=index --format=csv,noheader | wc -l)
 fi
 echo ""
-echo "検出GPU数: $DETECTED_GPUS / 必要: $NUM_WORKERS"
+echo -e "検出GPU数: ${GREEN}$DETECTED_GPUS${NC} / 必要: ${YELLOW}$NUM_WORKERS${NC}"
 
 if [ "$DETECTED_GPUS" -lt "$NUM_WORKERS" ]; then
-    echo "WARNING: GPUが不足しています。ワーカー数を$DETECTED_GPUSに調整します。"
-    NUM_WORKERS=$DETECTED_GPUS
+    echo -e "${RED}エラー: 必要なGPU数($NUM_WORKERS)が不足しています。${NC}"
+    exit 1
 fi
 echo ""
 
-# ステップ1: ドライラン (設定テスト)
-echo "=== Step 1: ドライラン ==="
-cd "$PROJECT_DIR"
-python runpod/generate_reasoning.py --config "$CONFIG" --dry-run 2>&1 | tee "$LOG_DIR/dryrun_$TIMESTAMP.log"
-echo "ドライラン完了 ✓"
+# ステップ# 1. ドライラン (コンフィグとプロンプトのチェック)
 echo ""
+echo -e "${GREEN}[1/5] ドライラン実行 (設定の検証中...)${NC}"
+cd "$PROJECT_DIR"
+python runpod/generate_reasoning.py --config "$CONFIG" --dry-run
+if [ $? -ne 0 ]; then
+    echo -e "${RED}❌ ドライランに失敗しました。設定を確認してください。${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✓ ドライラン成功${NC}"
 
-# ステップ2: 6並列生成
-echo "=== Step 2: ${NUM_WORKERS}並列生成開始 ==="
+# 2. 並列データ生成
+echo ""
+echo -e "${GREEN}[2/5] データ生成開始 (${NUM_WORKERS}ワーカー並列)${NC}"
 echo "ログは $LOG_DIR/worker_*.log に出力されます"
 echo ""
 
@@ -76,7 +88,6 @@ for i in $(seq 0 $((NUM_WORKERS - 1))); do
         > "$LOG_DIR/worker_${i}_$TIMESTAMP.log" 2>&1 &
     PIDS+=($!)
     echo "  PID: ${PIDS[$i]}"
-    sleep 5  # RTX 3090はメモリ初期化に少し時間がかかる
 done
 
 echo ""
@@ -110,60 +121,49 @@ monitor_progress() {
             GPU_USAGE=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null | awk '{sum+=$1; n++} END {if(n>0) printf "%.0f", sum/n; else print 0}')
         fi
 
-        echo "[$(date +%H:%M:%S)] 生成済: $TOTAL 件 | 稼働ワーカー: $RUNNING/$NUM_WORKERS | 平均GPU使用率: ${GPU_USAGE}%"
+        echo -e "[$(date +%H:%M:%S)] 生成済: ${GREEN}$TOTAL${NC} 件 | 稼働ワーカー: ${YELLOW}$RUNNING/$NUM_WORKERS${NC} | 平均GPU使用率: ${BLUE}${GPU_USAGE}%${NC}"
 
         # 全ワーカー終了チェック
-        if [ $RUNNING -eq 0 ]; then
-            echo "全ワーカーが終了しました"
+        if [ "$RUNNING" -eq 0 ]; then
+            echo -e "${GREEN}✓ すべてのワーカーが終了しました。${NC}"
             break
         fi
 
-        sleep 120  # 2分ごとに進捗チェック
+        sleep 60
     done
 }
 
-monitor_progress
+monitor_progress &
+MONITOR_PID=$!
 
 # 全プロセスの完了を待つ
 for pid in "${PIDS[@]}"; do
-    wait $pid 2>/dev/null || true
+    wait $pid
 done
+kill $MONITOR_PID
 
+echo -e "${GREEN}✓ データ生成完了${NC}"
+
+# 3. 品質フィルタリング
 echo ""
-echo "=== Step 2 完了: 生成終了 ==="
-
-# 生成結果の確認
-TOTAL_RAW=0
-for f in "$PROJECT_DIR/output/raw/"*.jsonl; do
-    if [ -f "$f" ]; then
-        COUNT=$(wc -l < "$f")
-        TOTAL_RAW=$((TOTAL_RAW + COUNT))
-        echo "  $(basename $f): $COUNT 件"
-    fi
-done
-echo "合計 (raw): $TOTAL_RAW 件"
-echo ""
-
-# ステップ3: 品質フィルタリング
-echo "=== Step 3: 品質フィルタリング ==="
+echo -e "${GREEN}[3/5] 品質フィルタリング実行...${NC}"
 python filter_quality.py \
     --config "$CONFIG" \
     --input-dir "$PROJECT_DIR/output/raw" \
-    --output-dir "$PROJECT_DIR/output/filtered" \
-    --save-rejected \
-    2>&1 | tee "$LOG_DIR/filter_$TIMESTAMP.log"
-echo "フィルタリング完了 ✓"
-echo ""
+    --output-dir "$PROJECT_DIR/output/filtered"
 
-# ステップ4: マージ & 最終データセット生成
-echo "=== Step 4: マージ & 最終データセット ==="
+# 4. マージとレポート生成
+echo ""
+echo -e "${GREEN}[4/5] データセットのマージとレポート生成...${NC}"
 python merge_outputs.py \
     --config "$CONFIG" \
     --input-dir "$PROJECT_DIR/output/filtered" \
-    --output-dir "$PROJECT_DIR/output/final" \
-    2>&1 | tee "$LOG_DIR/merge_$TIMESTAMP.log"
-echo "マージ完了 ✓"
+    --output-filepath "$PROJECT_DIR/output/final/qwen-reasoning-dataset.jsonl" \
+    --report-filepath "$PROJECT_DIR/output/final/dataset_report.json"
+
+# 5. HuggingFace Hub へのアップロード
 echo ""
+echo -e "${GREEN}[5/5] HuggingFace Hubへのアップロード...${NC}"
 
 # 最終レポート
 echo "=========================================="
