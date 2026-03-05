@@ -29,27 +29,27 @@ source /workspace/venv/bin/activate
 
 # --- 依存パッケージのインストール ---
 echo -e "\n${GREEN}[3/5] 依存パッケージのインストール (進捗は以下に表示されます)...${NC}"
-pip install --upgrade pip
+python3 -m pip install --upgrade pip
+# 【重要】依存解決によって40分フリーズするpipの弱点を解決するため、Rust製の超高速パッケージマネージャ「uv」を導入
+python3 -m pip install uv
 
-# 軽量ライブラリ群のインストール
-pip install --no-cache-dir --prefer-binary \
-    transformers>=4.48.0 \
-    pyyaml \
-    tqdm \
-    datasets \
-    huggingface_hub
+# 軽量ライブラリ群のインストール (uvを使うと数秒で終わります)
+uv pip install transformers>=4.48.0 pyyaml tqdm datasets huggingface_hub
 
 # vLLM (ROCm対応版) のインストール
 if ! python3 -c "import vllm" &> /dev/null; then
-    echo -e "\n${YELLOW}システムにvLLMが見つかりません。公式のvllm-rocmホイールをインストールします...${NC}"
-    # vllm-rocmとその依存関係をインストールしますが、
-    # 巨大な「CUDA版PyTorch」が誤ってダウンロードされて40分かかるのを防ぐため、
-    # 依存解決先としてROCm用のレジストリを指定します。これによりシステムの最適化済みTorchが維持されます。
-    pip install vllm-rocm --extra-index-url https://download.pytorch.org/whl/rocm6.0
+    echo -e "\n${YELLOW}公式のvllm-rocmホイールと、安定版のPyTorchをインストールします...${NC}"
+    # RunpodのプレインストールPyTorch(dev版)はvLLMのバージョンチェックに弾かれクラッシュするため、
+    # ROCm 6.1対応の「正式な安定版PyTorch 2.4.0」を明示的にインストールします。
+    # （uvを通すことで依存関係の迷走がなくなり、40分かかっていた解決が1秒未満で終わります）
+    uv pip install "torch==2.4.0" "torchvision==0.19.0" "torchaudio==2.4.0" --index-url https://download.pytorch.org/whl/rocm6.1
+    
+    # 互換性を持つようになった環境にvLLMをインストール
+    uv pip install vllm-rocm
 fi
 
-echo -n "  vLLMバージョン: " && python -c 'import vllm; print(vllm.__version__)'
-echo -n "  PyTorchバージョン: " && python -c 'import torch; print(torch.__version__)'
+echo -n "  vLLMバージョン: " && python3 -c 'import vllm; print(vllm.__version__)'
+echo -n "  PyTorchバージョン: " && python3 -c 'import torch; print(torch.__version__)'
 
 # --- プロジェクトのセットアップ ---
 echo -e "\n${GREEN}[4/5] プロジェクトディレクトリのセットアップ...${NC}"
