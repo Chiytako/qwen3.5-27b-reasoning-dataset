@@ -32,6 +32,14 @@ echo -e "${BLUE} Started: $(date)${NC}"
 echo -e "${BLUE} Project: $PROJECT_DIR${NC}"
 echo -e "${BLUE}==========================================${NC}"
 
+# 仮想環境のアクティベート
+if [ -d "$VENV" ]; then
+    source "$VENV/bin/activate"
+    echo "仮想環境: $VENV"
+else
+    echo "WARNING: 仮想環境が見つかりません。システムPythonを使用します。"
+fi
+
 # GPU確認
 echo ""
 echo -e "${YELLOW}=== GPU状態 ===${NC}"

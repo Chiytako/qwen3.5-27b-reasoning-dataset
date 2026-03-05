@@ -18,31 +18,54 @@ echo -e "${BLUE} Setup Script (AMD MI300X 192GB)${NC}"
 echo -e "${BLUE}==========================================${NC}"
 echo ""
 
-echo -e "${GREEN}[1/3] vLLM ROCm Dockerイメージの準備...${NC}"
-# インスタンス内でDockerデーモンが動いているか確認
-if ! command -v docker &> /dev/null; then
-    echo -e "${RED}エラー: Dockerがインストールされていません。Runpodのテンプレート設定でDocker in Docker(DinD)が有効になっているか、別のvLLM用テンプレートを選択してください。${NC}"
-    exit 1
+# --- システム更新 ---
+echo -e "${GREEN}[1/5] システムパッケージの更新...${NC}"
+apt-get update -qq && apt-get install -y -qq git wget curl htop tmux > /dev/null 2>&1 || echo -e "${YELLOW}  一部のパッケージの更新をスキップしました。${NC}" || true
+
+# --- Python環境 ---
+echo -e "\n${GREEN}[2/5] Python仮想環境のセットアップ...${NC}"
+python3 -m venv --system-site-packages /workspace/venv
+source /workspace/venv/bin/activate
+
+# --- 依存パッケージのインストール ---
+echo -e "\n${GREEN}[3/5] 依存パッケージのインストール (進捗は以下に表示されます)...${NC}"
+pip install --upgrade pip
+
+# 軽量ライブラリ群のインストール
+pip install --no-cache-dir --prefer-binary \
+    transformers>=4.48.0 \
+    pyyaml \
+    tqdm \
+    datasets \
+    huggingface_hub
+
+# vLLM (ROCm対応版) のインストール
+if ! python3 -c "import vllm" &> /dev/null; then
+    echo -e "\n${YELLOW}システムにvLLMが見つかりません。公式のvllm-rocmホイールをインストールします...${NC}"
+    # PyPIのAMD公式 vllm-rocm パッケージを利用するためコンパイルは発生しません
+    pip install vllm-rocm
 fi
 
-# =============================================================================
-# ▼ Dockerコンテナを利用したアプローチ ▼
-# =============================================================================
-# Qwen3.5-27Bを動かすためには、単なるpipではなく、
-# MI300XのROCmに極限まで最適化された公式vLLM Dockerイメージが必要です。
-# =============================================================================
+echo -n "  vLLMバージョン: " && python -c 'import vllm; print(vllm.__version__)'
+echo -n "  PyTorchバージョン: " && python -c 'import torch; print(torch.__version__)'
 
-# AMDの最新vLLMイメージ名
-VLLM_IMAGE="rocm/vllm:rocm6.2_mi300_ubuntu20.04_py3.9_vllm_0.6.4"
+# --- プロジェクトのセットアップ ---
+echo -e "\n${GREEN}[4/5] プロジェクトディレクトリのセットアップ...${NC}"
+PROJECT_DIR="/workspace/qwen3.5-27b-reasoning-dataset"
 
-echo -e "\n${GREEN}[2/3] Qwen3.5-27B フルモデル事前ダウンロード...${NC}"
-python3 -m pip install --upgrade pip
-python3 -m pip install huggingface_hub
+# 出力ディレクトリ作成
+mkdir -p "$PROJECT_DIR/output/raw"
+mkdir -p "$PROJECT_DIR/output/filtered"
+mkdir -p "$PROJECT_DIR/output/final"
+mkdir -p "$PROJECT_DIR/output/checkpoints"
+mkdir -p "$PROJECT_DIR/output/rejected"
+mkdir -p "$PROJECT_DIR/logs"
 
-mkdir -p /workspace/models
+# --- モデルの事前ダウンロード ---
+echo -e "\n${GREEN}[5/5] Qwen3.5-27B フルモデル事前ダウンロード...${NC}"
 python3 -c "
 from huggingface_hub import snapshot_download
-print('モデルをダウンロード中... (FP16/BF16版は約54GB、時間がかかります。)')
+print('モデルをダウンロード中... (FP16/BF16版は約54GB、時間がかかります。進捗バーが表示されます)')
 snapshot_download(
     repo_id='Qwen/Qwen3.5-27B',
     local_dir='/workspace/models/Qwen3.5-27B',
@@ -51,39 +74,10 @@ snapshot_download(
 print('ダウンロード完了!')
 "
 
-echo -e "\n${GREEN}[3/3] Docker用の起動スクリプトの生成...${NC}"
-PROJECT_DIR="/workspace/qwen3.5-27b-reasoning-dataset"
-mkdir -p "$PROJECT_DIR/output/raw"
-mkdir -p "$PROJECT_DIR/output/filtered"
-mkdir -p "$PROJECT_DIR/output/final"
-mkdir -p "$PROJECT_DIR/logs"
-
-cat << 'EOF' > runpod/docker_runner.sh
-#!/bin/bash
-PROJECT_DIR="/workspace/qwen3.5-27b-reasoning-dataset"
-VLLM_IMAGE="rocm/vllm:rocm6.2_mi300_ubuntu20.04_py3.9_vllm_0.6.4"
-
-echo "=== AMD公式 vLLM コンテナを起動します ==="
-# ROCmデバイスをコンテナにマウントし、共有メモリを大きく取って起動
-docker run -it --rm \
-    --network host \
-    --device /dev/kfd \
-    --device /dev/dri \
-    --ipc=host \
-    --shm-size 128G \
-    --group-add video \
-    --cap-add=SYS_PTRACE \
-    --security-opt seccomp=unconfined \
-    -v /workspace:/workspace \
-    -w /workspace/qwen3.5-27b-reasoning-dataset \
-    $VLLM_IMAGE \
-    bash -c "\
-        echo '=== コンテナ内セットアップ ===' && \
-        pip install pyyaml tqdm datasets huggingface_hub && \
-        bash runpod/run_pipeline.sh \
-    "
-EOF
-chmod +x runpod/docker_runner.sh
+# --- GPU確認 ---
+echo -e "\n${GREEN}[GPU状態の確認]...${NC}"
+rocm-smi --showid --showproductname --showmeminfo vram 2>/dev/null || nvidia-smi --query-gpu=index,name,memory.total,memory.free,driver_version --format=csv,noheader
+echo ""
 
 echo ""
 echo -e "${BLUE}==========================================${NC}"
@@ -92,9 +86,9 @@ echo -e "${BLUE}==========================================${NC}"
 echo ""
 echo -e "GPU構成: ${YELLOW}AMD MI300X 192GB x1${NC}"
 echo -e "モデル: ${YELLOW}Qwen3.5-27B フルパラメータ (~54GB/GPU)${NC}"
-echo -e "実行方式: ${YELLOW}AMD公式 Dockerコンテナ (ROCm 6.2 + vLLM 0.6.4)${NC}"
+echo -e "実行方式: ${YELLOW}venv仮想環境 + vllm-rocm公式パッケージ${NC}"
 echo ""
 echo -e "${GREEN}次のステップ:${NC}"
-echo "  生成プロセスの開始（Docker経由）:"
-echo -e "     ${YELLOW}bash runpod/docker_runner.sh${NC}"
+echo "  生成プロセスの開始:"
+echo -e "     ${YELLOW}bash runpod/run_pipeline.sh${NC}"
 echo ""
