@@ -20,8 +20,8 @@ python3 -m venv /workspace/venv
 source /workspace/venv/bin/activate
 
 # --- 依存パッケージのインストール ---
-echo "[3/6] 依存パッケージのインストール..."
-pip install --upgrade pip > /dev/null 2>&1
+echo "[3/6] 依存パッケージのインストール (時間がかかります、進捗を確認してください)..."
+pip install --upgrade pip
 pip install \
     vllm>=0.16.0 \
     transformers>=4.48.0 \
@@ -29,8 +29,7 @@ pip install \
     pyyaml \
     tqdm \
     datasets \
-    huggingface_hub \
-    > /dev/null 2>&1
+    huggingface_hub
 
 echo "  vLLMバージョン: $(python -c 'import vllm; print(vllm.__version__)')"
 echo "  PyTorchバージョン: $(python -c 'import torch; print(torch.__version__)')"
