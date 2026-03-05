@@ -4,10 +4,10 @@
 
 # --- モデル設定 ---
 model:
-  name: "Qwen/Qwen3.5-27B-GPTQ-Int4"
-  max_model_len: 16384                      # ユーザー要望に基づき16K以上のコンテキスト長を確保
-  gpu_memory_utilization: 0.95              # KVキャッシュを最大限確保するため0.95に設定
-  quantization: "gptq"
+  name: "Qwen/Qwen3.5-27B"                  # 192GBあるためフルパラメータ(FP16/BF16)モデルで推論能力を最大化
+  max_model_len: 24576                      # 超大容量VRAMを活かして24Kの巨大コンテキスト長を確保
+  gpu_memory_utilization: 0.95              # MI300Xの192GBのうち95％(約182GB)をvLLMで使用
+  quantization: null                        # 量子化なし（生成スピードと推論限界性能を両立）
   trust_remote_code: true
 
 # --- 推論パラメータ ---
@@ -19,14 +19,14 @@ generation:
   min_tokens: 256                           # 最小生成トークン数
   repetition_penalty: 1.0                   # 推論（思考タグ）中の反復を妨げないように1.0（ペナルティなし）を推奨
   num_samples_per_prompt: 3                 # rejection sampling用: 各プロンプトにN個生成
-  batch_size: 16                            # コンテキスト長を16Kに伸ばしたため、OOMを防ぐべくバッチサイズを大幅に削減
+  batch_size: 256                           # メモリ帯域5.3TB/s・HBM3 192GBをフル活用し、スループットを最大化する超巨大バッチ
 
 # --- 並列処理設定 ---
 parallel:
-  num_workers: 6                            # GPU数 = ワーカー数 (RTX 3090 x6)
-  tensor_parallel_size: 1                   # 各ワーカーはGPU1枚
-  samples_per_worker: 167000                # 各ワーカーの担当件数 (1M / 6)
-  checkpoint_interval: 1000                 # N件ごとにチェックポイント保存
+  num_workers: 1                            # MI300X 1枚
+  tensor_parallel_size: 1                   # GPU 1枚で実行
+  samples_per_worker: 1000000               # 1基で100万件を担当
+  checkpoint_interval: 2000                 # 2000件ごとにチェックポイント保存
 
 # --- データセット設定 ---
 dataset:

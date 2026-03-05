@@ -7,7 +7,7 @@ set -e
 
 echo "=========================================="
 echo " Qwen3.5-27B Reasoning Dataset Generator"
-echo " Runpod Setup Script (RTX 3090 x6)"
+echo " Runpod Setup Script (AMD MI300X 192GB)"
 echo "=========================================="
 
 # --- システム更新 ---
@@ -37,7 +37,7 @@ echo "  PyTorchバージョン: $(python -c 'import torch; print(torch.__version
 
 # --- GPU確認 ---
 echo "[4/6] GPU状態の確認..."
-nvidia-smi --query-gpu=index,name,memory.total,memory.free,driver_version --format=csv,noheader
+rocm-smi --showid --showproductname --showmeminfo vram 2>/dev/null || nvidia-smi --query-gpu=index,name,memory.total,memory.free,driver_version --format=csv,noheader
 echo ""
 python3 -c "
 import torch
@@ -48,9 +48,8 @@ for i in range(torch.cuda.device_count()):
     print(f'  GPU {i}: {torch.cuda.get_device_name(i)} ({props.total_memory / 1024**3:.1f} GB)')
     
 gpu_count = torch.cuda.device_count()
-if gpu_count < 6:
-    print(f'WARNING: GPUが{gpu_count}枚しか検出されません。6枚推奨です。')
-    print(f'  config.yamlのnum_workersを{gpu_count}に変更してください。')
+if gpu_count < 1:
+    print(f'WARNING: GPUが検出されません。MI300X 1基推奨です。')
 "
 
 # --- プロジェクトのセットアップ ---
@@ -66,13 +65,13 @@ mkdir -p "$PROJECT_DIR/output/rejected"
 mkdir -p "$PROJECT_DIR/logs"
 
 # --- モデルの事前ダウンロード ---
-echo "[6/6] Qwen3.5-27B-GPTQ-Int4 モデルの事前ダウンロード..."
+echo "[6/6] Qwen3.5-27B フルモデル事前ダウンロード..."
 python3 -c "
 from huggingface_hub import snapshot_download
-print('モデルをダウンロード中... (初回は約15GB、時間がかかります)')
+print('モデルをダウンロード中... (FP16/BF16版は約54GB、時間がかかります)')
 snapshot_download(
-    repo_id='Qwen/Qwen3.5-27B-GPTQ-Int4',
-    local_dir='/workspace/models/Qwen3.5-27B-GPTQ-Int4',
+    repo_id='Qwen/Qwen3.5-27B',
+    local_dir='/workspace/models/Qwen3.5-27B',
     ignore_patterns=['*.md', '*.txt', 'LICENSE*'],
 )
 print('ダウンロード完了!')
@@ -83,9 +82,9 @@ echo "=========================================="
 echo " セットアップ完了!"
 echo "=========================================="
 echo ""
-echo "GPU構成: RTX 3090 24GB x6 = 144GB VRAM"
-echo "モデル: Qwen3.5-27B-GPTQ-Int4 (~15GB/GPU)"
-echo "並列度: 6ワーカー (1 GPU/ワーカー)"
+echo "GPU構成: AMD MI300X 192GB x1"
+echo "モデル: Qwen3.5-27B フルパラメータ (~54GB/GPU)"
+echo "並列度: 1ワーカー (1 GPU/ワーカー)"
 echo ""
 echo "次のステップ:"
 echo "  1. ドライラン (テスト):"
