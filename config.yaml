@@ -4,14 +4,11 @@
 
 # --- モデル設定 ---
 model:
-  name: "Qwen/Qwen3.5-27B-AWQ"           # AWQ 4bit量子化版
-  fallback_name: "Qwen/Qwen3.5-27B"       # フルプレシジョン版（大VRAM用）
-  max_model_len: 16384                      # 最大コンテキスト長
-  gpu_memory_utilization: 0.90              # GPU メモリ使用率 (RTX 3090 24GB)
-  dtype: "auto"                             # データ型（AWQは自動）
-  quantization: "awq"                       # 量子化方式
+  name: "Qwen/Qwen3.5-27B-GPTQ-Int4"
+  max_model_len: 4096
+  gpu_memory_utilization: 0.90 # RTX 3090 (24GB) x6 向けの設定
+  quantization: "gptq"
   trust_remote_code: true
-  enable_thinking: true                     # Qwen3.5 thinking mode有効化
 
 # --- 推論パラメータ ---
 generation:

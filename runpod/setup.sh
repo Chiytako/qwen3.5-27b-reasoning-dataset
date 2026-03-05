@@ -66,13 +66,13 @@ mkdir -p "$PROJECT_DIR/output/rejected"
 mkdir -p "$PROJECT_DIR/logs"
 
 # --- モデルの事前ダウンロード ---
-echo "[6/6] Qwen3.5-27B-AWQ モデルの事前ダウンロード..."
+echo "[6/6] Qwen3.5-27B-GPTQ-Int4 モデルの事前ダウンロード..."
 python3 -c "
 from huggingface_hub import snapshot_download
 print('モデルをダウンロード中... (初回は約15GB、時間がかかります)')
 snapshot_download(
-    repo_id='Qwen/Qwen3.5-27B-AWQ',
-    local_dir='/workspace/models/Qwen3.5-27B-AWQ',
+    repo_id='Qwen/Qwen3.5-27B-GPTQ-Int4',
+    local_dir='/workspace/models/Qwen3.5-27B-GPTQ-Int4',
     ignore_patterns=['*.md', '*.txt', 'LICENSE*'],
 )
 print('ダウンロード完了!')
@@ -84,7 +84,7 @@ echo " セットアップ完了!"
 echo "=========================================="
 echo ""
 echo "GPU構成: RTX 3090 24GB x6 = 144GB VRAM"
-echo "モデル: Qwen3.5-27B-AWQ (~14GB/GPU)"
+echo "モデル: Qwen3.5-27B-GPTQ-Int4 (~15GB/GPU)"
 echo "並列度: 6ワーカー (1 GPU/ワーカー)"
 echo ""
 echo "次のステップ:"
