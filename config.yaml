@@ -26,7 +26,7 @@ parallel:
   num_workers: 1                            # MI300X 1枚
   tensor_parallel_size: 1                   # GPU 1枚で実行
   samples_per_worker: 1000000               # 1基で100万件を担当
-  checkpoint_interval: 2000                 # 2000件ごとにチェックポイント保存
+  checkpoint_interval: 256                  # Spotインスタンスの中断対策：1バッチ(256件)ごとに即時保存
 
 # --- データセット設定 ---
 dataset:
