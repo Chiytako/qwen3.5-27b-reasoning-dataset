@@ -140,9 +140,14 @@ class ReasoningGenerator:
         self.client = openai.AsyncOpenAI(
             api_key="EMPTY",
             base_url=self.api_base,
-            timeout=1200.0,
-            max_retries=3
+            timeout=3600.0, # Llama.cppの連続バッチはキューが詰まると遅いのでタイムアウトを長く
+            max_retries=5
         )
+
+        self.concurrency_max_limit = config.get("api", {}).get("concurrency_max_limit", 128)
+        self.concurrency_target_latency = config.get("api", {}).get("concurrency_target_latency", 45.0)
+        # 初期並行数は上限の半分程度からスタート
+        self.current_concurrency = max(8, self.concurrency_max_limit // 2)
 
         # 出力ディレクトリ
         self.output_dir = Path(config["output"]["raw_dir"])
@@ -235,13 +240,14 @@ class ReasoningGenerator:
         return system_prompt, user_prompt, tools
 
     async def _generate_single(self, prompt_data: dict, semaphore: asyncio.Semaphore) -> Optional[dict]:
-        """単一のプロンプトに対する非同期生成"""
+        """単一のプロンプトに対する非同期生成 (時間計測付き)"""
         messages = [
             {"role": "system", "content": prompt_data["system_prompt"]},
             {"role": "user", "content": prompt_data["user_prompt"]},
         ]
         
         async with semaphore:
+            req_start = time.time()
             try:
                 response = await self.client.chat.completions.create(
                     model=self.model_name,
@@ -249,6 +255,7 @@ class ReasoningGenerator:
                     **self.generation_params
                 )
                 
+                req_time = time.time() - req_start
                 generated_text = response.choices[0].message.content
                 thinking, final_response = parse_thinking_response(generated_text)
                 
@@ -261,6 +268,7 @@ class ReasoningGenerator:
                     "tool_calls": extract_tool_calls(final_response),
                     "has_tool_use": detect_tool_use_intent(generated_text),
                     "output_tokens": response.usage.completion_tokens if response.usage else 0,
+                    "latency": req_time,
                 }
             except Exception as e:
                 logger.error(f"Sample {prompt_data['id']} 世代エラー: {e}")
@@ -284,12 +292,37 @@ class ReasoningGenerator:
                 
         return valid_results
 
+    def _adjust_concurrency(self, avg_latency: float):
+        """レスポンス待機時間に基づいて同時接続数を動的に増減させる(Load Balancing)"""
+        if avg_latency == 0:
+            return
+            
+        old_concurrency = self.current_concurrency
+        
+        # ターゲットレイテンシ(例:30秒)に対して早すぎるならまだ余裕がある->並列数を増やす
+        # ターゲットより遅いならサーバーが詰まっている->並列数を減らす
+        if avg_latency < self.concurrency_target_latency * 0.8:
+            # 余裕がある: +2ずつ増やす
+            self.current_concurrency = min(self.concurrency_max_limit, self.current_concurrency + 2)
+        elif avg_latency > self.concurrency_target_latency * 1.5:
+            # 詰まりすぎ: -4ずつ急激に減らす(最低値4)
+            self.current_concurrency = max(4, self.current_concurrency - 4)
+        elif avg_latency > self.concurrency_target_latency * 1.2:
+            # 少し遅い: -1ずつ減らす
+            self.current_concurrency = max(4, self.current_concurrency - 1)
+            
+        if old_concurrency != self.current_concurrency:
+            if self.current_concurrency > old_concurrency:
+                logger.info(f"⚡ [Auto-Scale] 平均応答 {avg_latency:.1f}s 極めて良好。同時接続数を拡張: {old_concurrency} -> {self.current_concurrency}")
+            else:
+                logger.warning(f"⏳ [Auto-Scale] 平均応答 {avg_latency:.1f}s サーバー過負荷を検知。同時接続数を抑制: {old_concurrency} -> {self.current_concurrency}")
+
     async def run(self, num_samples: int):
         """メイン生成ループ"""
         if not await self._test_connection():
             return
 
-        logger.info(f"Worker {self.worker_id}: {num_samples} 件の生成を開始 (非同期API)")
+        logger.info(f"Worker {self.worker_id}: {num_samples} 件の生成を開始 (Llama.cpp Async API) [初期同時接続数: {self.current_concurrency}]")
 
         # チェックポイントから再開
         state = self.checkpoint.load()
@@ -298,8 +331,7 @@ class ReasoningGenerator:
         if start_index > 0:
             logger.info(f"Worker {self.worker_id}: {start_index} 件から再開")
             
-        concurrency_limit = self.config.get("api", {}).get("concurrency", 128)
-        batch_size = self.config["generation"].get("batch_size", 256) # SGLang向けには少し大きめのチャンクを作成
+        batch_size = self.config["generation"].get("batch_size", 256)
         checkpoint_interval = self.config["parallel"]["checkpoint_interval"]
         completed = start_index
         total_time = 0
@@ -307,7 +339,8 @@ class ReasoningGenerator:
         while completed < num_samples:
             batch_start = time.time()
 
-            # ここでの"batch"は非同期タスクの投入単位
+            # ここでの"batch"は非同期タスクの投入プール単位
+            # 実際には semaphore によって concurrency 制限がかかる
             current_batch_size = min(batch_size, num_samples - completed)
             batch_prompts = []
 
@@ -326,14 +359,15 @@ class ReasoningGenerator:
                     "tool_definitions": [t["function"] for t in tools] if tools else [],
                 })
 
-            # 超高並列非同期推論の実行
-            results = await self.generate_batch_async(batch_prompts, concurrency=concurrency_limit)
+            # 現在の動的コンカレンシー上限を渡して超高並列非同期推論の実行
+            results = await self.generate_batch_async(batch_prompts, concurrency=self.current_concurrency)
             
-            # 成功した数だけ進捗を進める（API失敗時などの欠損を防ぐ）
             success_count = len(results)
+            total_latency = 0.0
 
             # 結果を保存
             for result in results:
+                total_latency += result.get("latency", 0)
                 sample = ReasoningSample(
                     id=result["id"],
                     domain=result["domain"],
@@ -353,11 +387,16 @@ class ReasoningGenerator:
                 )
                 append_jsonl(sample.to_training_format(), str(self.output_file))
 
-            # もしエラーで１件も通らなかった場合は少しリトライ待ち
+            # エラー全滅判定
             if success_count == 0:
-                logger.warning("バッチ全滅。APIサーバーがダウンしている可能性があります。5秒待ちます...")
-                await asyncio.sleep(5)
+                logger.warning("バッチ全滅。APIサーバーがいっぱい、もしくは落ちている可能性があります。10秒待ちます...")
+                self._adjust_concurrency(self.concurrency_target_latency * 2) # 強制負荷下げ
+                await asyncio.sleep(10)
                 continue
+
+            # 処理速度の解析と自動スケーリング調整
+            avg_latency = total_latency / success_count
+            self._adjust_concurrency(avg_latency)
 
             completed += success_count
             batch_time = time.time() - batch_start

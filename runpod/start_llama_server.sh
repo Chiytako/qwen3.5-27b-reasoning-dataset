@@ -1,7 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# SGLang API Server Launcher (MI300X Optimization)
-# v1.0
+# Llama.cpp API Server Launcher (MI300X ROCm)
 # =============================================================================
 set -e
 
@@ -15,18 +14,14 @@ PROJECT_DIR="/workspace/qwen3.5-27b-reasoning-dataset"
 LOG_DIR="$PROJECT_DIR/logs"
 mkdir -p "$LOG_DIR"
 
-MODEL_PATH="/workspace/models/Qwen3.5-27B"
-# ダウンロードされていない場合はHuggingFaceから直接ロード
-if [ ! -d "$MODEL_PATH" ]; then
-    MODEL_PATH="Qwen/Qwen3.5-27B"
-fi
-
+# UnslothのQ6_K GGUFモデル (約25.7GB)
+MODEL_PATH="/workspace/models/Qwen3.5-27B-GGUF/Qwen3.5-27B-UD-Q6_K_XL.gguf"
 PORT=8000
-SERVER_LOG="$LOG_DIR/sglang_server.log"
+SERVER_LOG="$LOG_DIR/llama_server.log"
 
 echo -e "${BLUE}==========================================${NC}"
-echo -e "${BLUE} Starting SGLang API Server...${NC}"
-echo -e "${BLUE} Model: ${MODEL_PATH}${NC}"
+echo -e "${BLUE} Starting Llama.cpp API Server...${NC}"
+echo -e "${BLUE} Model: Qwen3.5-27B-UD-Q6_K_XL (Unsloth)${NC}"
 echo -e "${BLUE} Port:  ${PORT}${NC}"
 echo -e "${BLUE}==========================================${NC}"
 
@@ -36,27 +31,35 @@ if lsof -i:$PORT -t >/dev/null 2>&1; then
     exit 0
 fi
 
-# MI300X / ROCm 固有の最適化環境変数
-export HIP_FORCE_DEV_KERNARG=1
-export VLLM_ROCM_SHUFFLE_KV_CACHE_LAYOUT=1
+if [ ! -f "$MODEL_PATH" ]; then
+    echo -e "${RED}エラー: モデルファイルが見つかりません。setup.sh を実行してダウンロードしてください。${NC}"
+    echo "Path: $MODEL_PATH"
+    exit 1
+fi
 
-# SGLang サーバーの起動
-#   --tp: テンソルパラレルサイズ (今回は MI300X 1枚=192GB なので 1)
-#   --mem-fraction-static: GPUメモリの事前確保割合 (0.95等)
-#   --context-length: コンテキストサイズ (vLLM設定を引き継ぎ約24k)
-echo "SGLang サーバーをバックグラウンドで起動中..."
+echo "llama-server をバックグラウンドで起動中..."
 echo "ログファイル: $SERVER_LOG"
 
-python3 -m sglang.launch_server \
-    --model-path "$MODEL_PATH" \
-    --port $PORT \
+# Llama.cpp サーバーの起動オプション
+# -m: モデルパス
+# --host / --port: ネットワーク
+# -c: コンテキストサイズ (MI300Xの広大なVRAMを活かして32k以上に設定)
+# -np: Parallel slots (同時リクエスト受付数)
+# -ngld: GPUオフロードレイヤー (全レイヤー)
+# -fa: FlashAttention有効化
+# -cb: 連続バッチング(Continuous Batching)有効化
+# --alias: APIコール時のモデル名識別子
+
+/workspace/llama.cpp/build/bin/llama-server \
+    -m "$MODEL_PATH" \
     --host 0.0.0.0 \
-    --tp 1 \
-    --mem-fraction-static 0.95 \
-    --context-length 24576 \
-    --enable-dp-attention \
-    --reasoning-parser qwen3 \
-    --tool-call-parser qwen3_coder \
+    --port $PORT \
+    -c 32768 \
+    -np 128 \
+    -ngld 999 \
+    -fa \
+    -cb \
+    --alias "Qwen/Qwen3.5-27B" \
     > "$SERVER_LOG" 2>&1 &
 
 SERVER_PID=$!
@@ -83,5 +86,5 @@ while ! curl -s http://localhost:$PORT/v1/models >/dev/null; do
     fi
 done
 
-echo -e "\n${GREEN}✓ SGLang APIサーバーが正常に起動しました！${NC}"
+echo -e "\n${GREEN}✓ Llama.cpp APIサーバーが正常に起動しました！${NC}"
 echo "API URL: http://localhost:$PORT/v1"

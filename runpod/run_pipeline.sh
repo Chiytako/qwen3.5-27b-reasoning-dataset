@@ -72,8 +72,8 @@ echo -e "${GREEN}✓ ドライラン成功${NC}"
 
 # 2. APIサーバーの起動
 echo ""
-echo -e "${GREEN}[2/5] SGLang APIサーバー起動${NC}"
-bash runpod/start_sglang_server.sh
+echo -e "${GREEN}[2/5] Llama.cpp APIサーバー起動${NC}"
+bash runpod/start_llama_server.sh
 if [ $? -ne 0 ]; then
     echo -e "${RED}❌ APIサーバーの起動に失敗しました。${NC}"
     exit 1
@@ -81,7 +81,7 @@ fi
 
 # 3. 超並列データ生成 (API クライアント)
 echo ""
-echo -e "${GREEN}[3/5] データ生成開始 (SGLang Async API)${NC}"
+echo -e "${GREEN}[3/5] データ生成開始 (Llama.cpp Async API)${NC}"
 echo "ログは $LOG_DIR/generation_$TIMESTAMP.log に出力されます"
 echo ""
 
@@ -152,8 +152,9 @@ TOTAL_FILTERED=$(find "$PROJECT_DIR/output/filtered/" -name "*.jsonl" -exec wc -
 
 echo ""
 echo -e "${BLUE}==========================================${NC}"
-echo -e "${BLUE} Pipeline Complete!${NC}"
-echo -e "${BLUE} Finished: $(date)${NC}"
+echo -e "${BLUE} Qwen3.5-27B Reasoning Dataset Generator${NC}"
+echo -e "${BLUE} Pipeline Execution (AMD MI300X)${NC}"
+echo -e "${BLUE} Backend: Llama.cpp API Server${NC}"
 echo -e "${BLUE}==========================================${NC}"
 echo ""
 echo "最終結果:"

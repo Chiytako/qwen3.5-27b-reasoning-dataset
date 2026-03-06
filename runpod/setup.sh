@@ -33,22 +33,36 @@ source /workspace/venv/bin/activate
 echo "  Python:  $(python3 --version)"
 echo "  PyTorch: $(python3 -c 'import torch; print(torch.__version__)' 2>/dev/null || echo '未検出 (ビルド後に確認)')"
 
-# --- 依存パッケージ + SGLang インストール ---
-echo -e "\n${GREEN}[3/5] SGLang (ROCm用) と依存ライブラリのインストール...${NC}"
+# --- 依存パッケージ ---
+echo -e "\n${GREEN}[3/5] APIクライアント用ライブラリとllama.cppのビルド...${NC}"
 python3 -m pip install --upgrade pip --quiet
 python3 -m pip install uv --quiet
 
-# 軽量ライブラリ
-echo "  依存関係ツールをインストール中..."
-uv pip install transformers>=4.48.0 pyyaml tqdm datasets huggingface_hub openai aiohttp --quiet
+# クライアント用軽量ライブラリ
+echo "  依存関係クライアントツールをインストール中..."
+uv pip install pyyaml tqdm datasets huggingface_hub openai aiohttp --quiet
 
-# SGLang インストール (Qwen3.5対応の最新mainブランチから取得)
-echo "  SGLang (FlashInfer対応, mainブランチ) をインストール中..."
-uv pip install "git+https://github.com/sgl-project/sglang.git#subdirectory=python&egg=sglang[all]" --quiet
+# llama.cpp インストールとMI300X最適化ビルド
+echo "  llama.cpp リポジトリを取得中..."
+if [ ! -d "/workspace/llama.cpp" ]; then
+    git clone https://github.com/ggerganov/llama.cpp.git /workspace/llama.cpp
+fi
+cd /workspace/llama.cpp
+git pull origin master
+
+echo "  llama.cpp を MI300X (gfx942) ネイティブ ROCm バックエンドでコンパイル中..."
+# AMD MI300X 向けの最適化 CMake フラグ
+cmake -B build -DGGML_HIP=ON -DAMDGPU_TARGETS=gfx942
+cmake --build build --config Release -j $(nproc)
 
 echo ""
-echo -n "  SGLang バージョン:   " && python3 -c 'import sglang; print(sglang.__version__)' 2>/dev/null || echo "Unknown"
-echo -n "  PyTorch バージョン: " && python3 -c 'import torch; print(torch.__version__)'
+echo -n "  llama-server 実行ファイル作成確認: " 
+if [ -f "/workspace/llama.cpp/build/bin/llama-server" ]; then
+    echo -e "${GREEN}✓ 成功${NC}"
+else
+    echo -e "${RED}❌ 失敗${NC}"
+    exit 1
+fi
 echo ""
 
 # --- プロジェクトのセットアップ ---
@@ -63,17 +77,26 @@ mkdir -p "$PROJECT_DIR/output/rejected"
 mkdir -p "$PROJECT_DIR/logs"
 echo "  出力ディレクトリ作成完了: $PROJECT_DIR"
 
-# --- モデルの事前ダウンロード ---
-echo -e "\n${GREEN}[5/5] Qwen3.5-27B フルモデル事前ダウンロード...${NC}"
+# --- モデルの事前ダウンロード (Unsloth GGUF) ---
+echo -e "\n${GREEN}[5/5] Qwen3.5-27B (Unsloth Q6_K_XL) ダウンロード...${NC}"
+MODEL_DIR="/workspace/models/Qwen3.5-27B-GGUF"
+mkdir -p "$MODEL_DIR"
+
 python3 -c "
-from huggingface_hub import snapshot_download
-print('モデルをダウンロード中... (FP16/BF16版は約54GB、時間がかかります。進捗バーが表示されます)')
-snapshot_download(
-    repo_id='Qwen/Qwen3.5-27B',
-    local_dir='/workspace/models/Qwen3.5-27B',
-    ignore_patterns=['*.md', '*.txt', 'LICENSE*'],
-)
-print('ダウンロード完了!')
+from huggingface_hub import hf_hub_download
+import os
+
+repo_id = 'unsloth/Qwen3.5-27B-GGUF'
+filename = 'Qwen3.5-27B-UD-Q6_K_XL.gguf'
+local_dir = '/workspace/models/Qwen3.5-27B-GGUF'
+model_path = os.path.join(local_dir, filename)
+
+if not os.path.exists(model_path):
+    print(f'{filename} (約25.7GB) をダウンロード中...')
+    hf_hub_download(repo_id=repo_id, filename=filename, local_dir=local_dir)
+    print('ダウンロード完了!')
+else:
+    print('モデルは既に存在します。ダウロードをスキップします。')
 "
 
 # --- GPU確認 ---

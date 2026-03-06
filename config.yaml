@@ -2,11 +2,12 @@
 # Qwen3.5-27B Reasoning Dataset Generation Pipeline Configuration
 # =============================================================================
 
-# --- APIサーバー設定 (SGLang) ---
+# --- APIサーバー設定 (Llama.cpp) ---
 api:
-  base_url: "http://localhost:8000/v1"      # SGLang API サーバーのエンドポイント
-  model_name: "Qwen/Qwen3.5-27B"            # 使用するモデル識別子
-  concurrency: 256                          # 非同期リクエストの最大同時実行数（MI300Xの広帯域を活かして超高並列）
+  base_url: "http://localhost:8000/v1"      # llama-server APIエンドポイント
+  model_name: "Qwen/Qwen3.5-27B"            # API側で指定したエイリアス名
+  concurrency_max_limit: 192                # ハードウェア性能に応じた最大同時接続数 (動的調整の上限)
+  concurrency_target_latency: 30.0          # バッチの理想的な応答平均時間（秒）。これを元にスレッド数を自動増減する
 # --- 推論パラメータ ---
 generation:
   temperature: 0.6                          # Reasoning/Codingタスク向けの推奨値(0.6)
