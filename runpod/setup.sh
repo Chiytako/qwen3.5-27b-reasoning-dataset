@@ -36,16 +36,28 @@ python3 -m pip install uv
 # 軽量ライブラリ群のインストール (uvを使うと数秒で終わります)
 uv pip install transformers>=4.48.0 pyyaml tqdm datasets huggingface_hub
 
-# vLLM (ROCm対応版) のインストール
-# Qwen3.5 (Qwen3_5ForConditionalGeneration) のサポートには最新vLLMが必要。
-# vllm-rocm (旧コミュニティ版) は古くQwen3.5未対応のため、公式vllmに切り替える。
-# 最新vLLMはROCmサポートを同梱しており別パッケージ不要。
-echo -e "\n${YELLOW}vLLM (最新版・ROCm組み込み) をインストールします...${NC}"
-# PyTorch ROCm: 最新vLLMが要求するバージョンに合わせる
-# （uvを通すことで依存関係の迷走がなくなり、40分かかっていた解決が1秒未満で終わります）
-uv pip install "torch" "torchvision" "torchaudio" --index-url https://download.pytorch.org/whl/rocm6.2
-# 公式vLLMを最新版でインストール（Qwen3.5対応版）
-uv pip install vllm --upgrade
+# vLLM (ROCm向けソースビルド)
+# 背景:
+#   - PyPI の vllm パッケージは CUDA 専用ビルドであり ROCm では動作しない
+#   - PyPI の vllm-rocm は 0.6.3 止まりで Qwen3.5 (Qwen3_5ForConditionalGeneration) 未対応
+#   - wheels.vllm.ai の ROCm ホイールは ROCm 7.0 + Python 3.12 のみ対象
+#   - Qwen3.5 対応は vLLM v0.17.0 (未リリース) / nightly ビルドで提供
+#   → ROCm 6.x + Python 3.10 環境では ソースビルドが唯一の確実な手段
+echo -e "\n${YELLOW}vLLM を ROCm 向けにソースビルドします (30〜60分かかります)...${NC}"
+# ROCm 対応 PyTorch を先にインストール (pip install vllm の依存として上書きされないよう先行インストール)
+uv pip install "torch==2.4.0" "torchvision==0.19.0" "torchaudio==2.4.0" \
+    --index-url https://download.pytorch.org/whl/rocm6.1
+# vLLM ソース取得 (既にクローン済みの場合は pull のみ)
+VLLM_SRC="/workspace/vllm-src"
+if [ -d "$VLLM_SRC/.git" ]; then
+    git -C "$VLLM_SRC" pull --ff-only
+else
+    git clone https://github.com/vllm-project/vllm.git "$VLLM_SRC"
+fi
+# ROCm ターゲットでビルド・インストール
+cd "$VLLM_SRC"
+VLLM_TARGET_DEVICE=rocm pip install -e . --no-build-isolation
+cd -
 
 echo -n "  vLLMバージョン: " && python3 -c 'import vllm; print(vllm.__version__)'
 echo -n "  PyTorchバージョン: " && python3 -c 'import torch; print(torch.__version__)'

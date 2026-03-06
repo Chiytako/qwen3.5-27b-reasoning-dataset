@@ -162,35 +162,11 @@ class ReasoningGenerator:
         # GPU指定
         os.environ["CUDA_VISIBLE_DEVICES"] = str(self.gpu_id)
 
-        # --- Patch 1: rope_scaling ---
-        # Qwen3.5の rope_scaling は vLLM が要求する "factor" キーを持たない形式のため、
-        # _get_and_verify_max_len が hf_config を直接読む前に monkey-patch で補完する。
-        import vllm.config as _vllm_config
-        _orig_get_max_len = _vllm_config._get_and_verify_max_len
-        def _patched_get_max_len(hf_config, *args, **kwargs):
-            rope_scaling = getattr(hf_config, "rope_scaling", None)
-            if isinstance(rope_scaling, dict) and "factor" not in rope_scaling:
-                hf_config.rope_scaling = {**rope_scaling, "factor": 4.0}
-            return _orig_get_max_len(hf_config, *args, **kwargs)
-        _vllm_config._get_and_verify_max_len = _patched_get_max_len
-
-        # --- Patch 2: モデルレジストリ ---
-        # vllm-rocm 0.6.3 は Qwen3_5ForConditionalGeneration を未サポート。
-        # Qwen3.5 は Qwen2 ベースの構造なので Qwen2ForCausalLM 実装にマッピングして回避する。
-        try:
-            import vllm.model_executor.models.registry as _vllm_registry
-            _arch = "Qwen3_5ForConditionalGeneration"
-            # vllm バージョンによって内部辞書名が異なるため、複数候補を試みる
-            for _attr in ("_MODELS_MAPPING", "_MODEL_REGISTRY", "_TEXT_GENERATION_MODELS"):
-                _mapping = getattr(_vllm_registry, _attr, None)
-                if isinstance(_mapping, dict) and _arch not in _mapping:
-                    _qwen2_entry = _mapping.get("Qwen2ForCausalLM")
-                    if _qwen2_entry:
-                        _mapping[_arch] = _qwen2_entry
-                        logger.info(f"Registry patch: {_arch} → Qwen2ForCausalLM ({_attr})")
-                        break
-        except Exception as _e:
-            logger.warning(f"Registry patch skipped: {_e}")
+        # MI300X/ROCm パフォーマンス最適化環境変数
+        # AITER バックエンド: HIP Paged Attention を AMD 最適化カーネルに切り替え (最大4倍高速化)
+        os.environ.setdefault("VLLM_ROCM_USE_AITER", "1")
+        os.environ.setdefault("VLLM_ROCM_SHUFFLE_KV_CACHE_LAYOUT", "1")
+        os.environ.setdefault("FA_GFX_ARCHS", "gfx942")  # MI300X のアーキテクチャ識別子
 
         from vllm import LLM, SamplingParams
 
@@ -202,11 +178,10 @@ class ReasoningGenerator:
             trust_remote_code=self.config["model"]["trust_remote_code"],
             dtype="auto",
             quantization=self.config["model"].get("quantization", None),
-            enforce_eager=True,  # メモリ効率のため
-            device="cuda",       # MI300X/ROCm環境でもPyTorchレイヤーではcudaとして認識されるため明示的指定が必須
+            enforce_eager=True,   # DeltaNet層のdtypeバグ回避に必須 (vLLM Issue#35238)
+            device="cuda",        # MI300X/ROCm環境でもPyTorchレイヤーではcudaとして認識されるため明示的指定が必須
+            limit_mm_per_prompt={"image": 0, "video": 0},  # Qwen3.5はVLMだがテキスト生成のみ使用するためビジョンエンコーダを無効化
         )
-
-        _vllm_config._get_and_verify_max_len = _orig_get_max_len  # rope_scaling patch を元に戻す
 
         self.sampling_params = SamplingParams(
             temperature=self.config["generation"]["temperature"],
