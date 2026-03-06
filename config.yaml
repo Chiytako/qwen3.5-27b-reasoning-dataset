@@ -13,7 +13,7 @@ generation:
   temperature: 0.6                          # Reasoning/Codingタスク向けの推奨値(0.6)
   top_p: 0.95                               # Qwen推論の標準的推奨値へ
   top_k: 20                                 # 推奨値に合わせて40から20へ絞る
-  max_tokens: 8192                          # 最大生成トークン数
+  max_tokens: 12288                         # 最大生成トークン数 (スロット16384 - 入力余白4096)
   min_tokens: 256                           # 最小生成トークン数
   repetition_penalty: 1.0                   # 推論（思考タグ）中の反復を妨げないように1.0（ペナルティなし）を推奨
   num_samples_per_prompt: 3                 # rejection sampling用: 各プロンプトにN個生成

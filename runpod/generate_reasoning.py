@@ -151,10 +151,10 @@ class ReasoningGenerator:
             max_retries=5
         )
 
-        self.concurrency_max_limit = config.get("api", {}).get("concurrency_max_limit", 16)
+        self.concurrency_max_limit = config.get("api", {}).get("concurrency_max_limit", 8)
         self.concurrency_target_latency = config.get("api", {}).get("concurrency_target_latency", 45.0)
-        # 初期並行数は llama-server の -np 16 に合わせる
-        self.current_concurrency = 16
+        # 初期並行数は llama-server の -np 8 に合わせる (16384 tokens/slot)
+        self.current_concurrency = 8
 
         # 出力ディレクトリ
         self.output_dir = Path(config["output"]["raw_dir"])
@@ -178,7 +178,12 @@ class ReasoningGenerator:
         self.generation_params = {
             "temperature": self.config["generation"].get("temperature", 0.6),
             "top_p": self.config["generation"].get("top_p", 0.95),
-            "max_tokens": self.config["generation"].get("max_tokens", 8192)
+            "max_tokens": self.config["generation"].get("max_tokens", 12288),
+        }
+        # llama.cpp 固有パラメータ (extra_body で渡す)
+        # min_tokens: 早期 EOS による空・超短応答を防ぐ
+        self.extra_body = {
+            "min_tokens": self.config["generation"].get("min_tokens", 256),
         }
         
     async def _test_connection(self):
@@ -258,6 +263,7 @@ class ReasoningGenerator:
                 response = await self.client.chat.completions.create(
                     model=self.model_name,
                     messages=messages,
+                    extra_body=self.extra_body,
                     **self.generation_params
                 )
                 

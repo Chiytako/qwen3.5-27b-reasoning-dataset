@@ -22,7 +22,7 @@ BASE_PORT=8000
 echo -e "${BLUE}==========================================${NC}"
 echo -e "${BLUE} Starting Llama.cpp API Servers (x${NUM_INSTANCES})...${NC}"
 echo -e "${BLUE} Model: Qwen3.5-27B-UD-Q6_K_XL (Unsloth)${NC}"
-echo -e "${BLUE} Context Size: 131072 per instance (Total VRAM ~185GB)${NC}"
+echo -e "${BLUE} Context: 131072 total / 8 slots = 16384 tokens/slot (Total VRAM ~185GB)${NC}"
 echo -e "${BLUE}==========================================${NC}"
 
 if [ ! -f "$MODEL_PATH" ]; then
@@ -46,14 +46,15 @@ for i in $(seq 0 $((NUM_INSTANCES - 1))); do
     echo "ログファイル: $SERVER_LOG"
     
     # Llama.cpp サーバーの起動オプション
-    # -c 131072: 巨大なKVキャッシュ (14GB前後)
-    # -np 16: デフォルトのコンテキストが 131072/16 = 8192 トークンになるように確保
+    # -c 131072: 総KVキャッシュ (VRAM ~46GB/インスタンス、4インスタンスで ~185GB)
+    # -np 8: 並列スロット数。131072/8 = 16384 tokens/slot
+    #        (以前の -np 16 = 8192/slot だと思考チェーンが途切れ空応答が発生していた)
     /workspace/llama.cpp/build/bin/llama-server \
         -m "$MODEL_PATH" \
         --host 0.0.0.0 \
         --port $PORT \
         -c 131072 \
-        -np 16 \
+        -np 8 \
         -ngld 999 \
         -fa on \
         -cb \
