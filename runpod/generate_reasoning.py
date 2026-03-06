@@ -262,13 +262,34 @@ class ReasoningGenerator:
                 )
                 
                 req_time = time.time() - req_start
-                generated_text = response.choices[0].message.content or ""
-                
-                if not generated_text.strip():
+                message = response.choices[0].message
+                generated_text = message.content or ""
+
+                # llama.cpp は thinking を reasoning_content に分離して返す場合がある
+                reasoning_content = (
+                    getattr(message, 'reasoning_content', None)
+                    or (message.model_extra or {}).get('reasoning_content')
+                    or ""
+                )
+
+                if not generated_text.strip() and not reasoning_content.strip():
                     logger.warning(f"Sample {prompt_data['id']}: APIから空の応答が返されました。")
                     return None
-                    
-                thinking, final_response = parse_thinking_response(generated_text)
+
+                if reasoning_content:
+                    # reasoning_content が存在する場合: llama.cpp が thinking を分離済み
+                    thinking = reasoning_content.strip()
+                    final_response = generated_text.strip()
+                else:
+                    thinking, final_response = parse_thinking_response(generated_text)
+
+                # パース後も両方空の場合はスキップ (<think></think> のみ等)
+                if not thinking and not final_response:
+                    logger.warning(
+                        f"Sample {prompt_data['id']}: パース後に思考も応答も空でした。"
+                        f" raw={repr(generated_text[:80])}"
+                    )
+                    return None
                 
                 return {
                     **prompt_data,
