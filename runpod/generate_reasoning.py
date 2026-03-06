@@ -163,15 +163,17 @@ class ReasoningGenerator:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(self.gpu_id)
 
         # MI300X/ROCm パフォーマンス最適化環境変数
-        # AITER バックエンド: HIP Paged Attention を AMD 最適化カーネルに切り替え (最大4倍高速化)
-        os.environ.setdefault("VLLM_ROCM_USE_AITER", "1")
         os.environ.setdefault("VLLM_ROCM_SHUFFLE_KV_CACHE_LAYOUT", "1")
         os.environ.setdefault("FA_GFX_ARCHS", "gfx942")  # MI300X のアーキテクチャ識別子
+        # AITER: ROCm 7.2 で ViT Flash Attention 初期化クラッシュが発生するため無効化
+        # テキスト生成に AITER は不要 (AITER は主に attention kernel の最適化)
+        os.environ["VLLM_ROCM_USE_AITER"] = "0"
 
         from vllm import LLM, SamplingParams
 
         self.model = LLM(
             model=model_name,
+            task="generate",      # テキスト生成のみ。ViT エンコーダーを初期化しない
             tensor_parallel_size=self.config["parallel"]["tensor_parallel_size"],
             max_model_len=self.config["model"]["max_model_len"],
             gpu_memory_utilization=self.config["model"]["gpu_memory_utilization"],
@@ -180,7 +182,7 @@ class ReasoningGenerator:
             quantization=self.config["model"].get("quantization", None),
             enforce_eager=True,   # DeltaNet層のdtypeバグ回避に必須 (vLLM Issue#35238)
             # device="cuda" は vLLM 0.17.0 で EngineArgs から削除されたため省略
-            limit_mm_per_prompt={"image": 0, "video": 0},  # Qwen3.5はVLMだがテキスト生成のみ使用するためビジョンエンコーダを無効化
+            # limit_mm_per_prompt は task="generate" で不要
         )
 
         self.sampling_params = SamplingParams(
