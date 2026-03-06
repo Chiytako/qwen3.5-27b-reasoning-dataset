@@ -59,8 +59,9 @@ fi
 # cmake は 4.0以降 cmake_minimum_required(VERSION < 3.5) を含む ROCm の hip-config.cmake を拒否するため 3.x に固定
 pip install --upgrade setuptools setuptools_scm wheel ninja "cmake<4.0"
 # ROCm ターゲットでビルド・インストール
+# PYTORCH_ROCM_ARCH=gfx942: MI300X専用ビルド（他アーキテクチャのコンパイルを省略して高速化）
 cd "$VLLM_SRC"
-CMAKE_POLICY_VERSION_MINIMUM=3.5 VLLM_TARGET_DEVICE=rocm MAX_JOBS=8 pip install -e . --no-build-isolation
+CMAKE_POLICY_VERSION_MINIMUM=3.5 PYTORCH_ROCM_ARCH=gfx942 VLLM_TARGET_DEVICE=rocm MAX_JOBS=8 pip install -e . --no-build-isolation
 cd -
 
 echo -n "  vLLMバージョン: " && python3 -c 'import vllm; print(vllm.__version__)'
