@@ -283,10 +283,12 @@ class ReasoningGenerator:
                 else:
                     thinking, final_response = parse_thinking_response(generated_text)
 
-                # パース後も両方空の場合はスキップ (<think></think> のみ等)
-                if not thinking and not final_response:
+                # 最終応答が空の場合はスキップ
+                # (<think></think> のみ、または thinking だけで回答なし、等)
+                if not final_response:
                     logger.warning(
-                        f"Sample {prompt_data['id']}: パース後に思考も応答も空でした。"
+                        f"Sample {prompt_data['id']}: 最終応答が空でした。"
+                        f" thinking={'yes' if thinking else 'no'},"
                         f" raw={repr(generated_text[:80])}"
                     )
                     return None
