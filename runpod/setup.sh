@@ -56,10 +56,11 @@ else
 fi
 # ビルドに必要な依存パッケージを先行インストール
 # setuptools 65.x は pyproject.toml の PEP 639 ライセンス形式を解釈できないためアップグレード必須
-pip install --upgrade setuptools setuptools_scm wheel ninja cmake
+# cmake は 4.0以降 cmake_minimum_required(VERSION < 3.5) を含む ROCm の hip-config.cmake を拒否するため 3.x に固定
+pip install --upgrade setuptools setuptools_scm wheel ninja "cmake<4.0"
 # ROCm ターゲットでビルド・インストール
 cd "$VLLM_SRC"
-VLLM_TARGET_DEVICE=rocm pip install -e . --no-build-isolation
+CMAKE_POLICY_VERSION_MINIMUM=3.5 VLLM_TARGET_DEVICE=rocm MAX_JOBS=8 pip install -e . --no-build-isolation
 cd -
 
 echo -n "  vLLMバージョン: " && python3 -c 'import vllm; print(vllm.__version__)'
