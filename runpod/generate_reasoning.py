@@ -156,17 +156,15 @@ class ReasoningGenerator:
 
     def init_model(self):
         """vLLMモデルを初期化"""
-        from vllm import LLM, SamplingParams
-
         model_name = self.config["model"]["name"]
         logger.info(f"Worker {self.worker_id}: モデル '{model_name}' をGPU {self.gpu_id} にロード中...")
 
         # GPU指定
         os.environ["CUDA_VISIBLE_DEVICES"] = str(self.gpu_id)
 
+        # --- Patch 1: rope_scaling ---
         # Qwen3.5の rope_scaling は vLLM が要求する "factor" キーを持たない形式のため、
         # _get_and_verify_max_len が hf_config を直接読む前に monkey-patch で補完する。
-        # rope_scaling引数渡しでは hf_config.rope_scaling は上書きされないため、この方法が必要。
         import vllm.config as _vllm_config
         _orig_get_max_len = _vllm_config._get_and_verify_max_len
         def _patched_get_max_len(hf_config, *args, **kwargs):
@@ -175,6 +173,26 @@ class ReasoningGenerator:
                 hf_config.rope_scaling = {**rope_scaling, "factor": 4.0}
             return _orig_get_max_len(hf_config, *args, **kwargs)
         _vllm_config._get_and_verify_max_len = _patched_get_max_len
+
+        # --- Patch 2: モデルレジストリ ---
+        # vllm-rocm 0.6.3 は Qwen3_5ForConditionalGeneration を未サポート。
+        # Qwen3.5 は Qwen2 ベースの構造なので Qwen2ForCausalLM 実装にマッピングして回避する。
+        try:
+            import vllm.model_executor.models.registry as _vllm_registry
+            _arch = "Qwen3_5ForConditionalGeneration"
+            # vllm バージョンによって内部辞書名が異なるため、複数候補を試みる
+            for _attr in ("_MODELS_MAPPING", "_MODEL_REGISTRY", "_TEXT_GENERATION_MODELS"):
+                _mapping = getattr(_vllm_registry, _attr, None)
+                if isinstance(_mapping, dict) and _arch not in _mapping:
+                    _qwen2_entry = _mapping.get("Qwen2ForCausalLM")
+                    if _qwen2_entry:
+                        _mapping[_arch] = _qwen2_entry
+                        logger.info(f"Registry patch: {_arch} → Qwen2ForCausalLM ({_attr})")
+                        break
+        except Exception as _e:
+            logger.warning(f"Registry patch skipped: {_e}")
+
+        from vllm import LLM, SamplingParams
 
         self.model = LLM(
             model=model_name,
@@ -188,7 +206,7 @@ class ReasoningGenerator:
             device="cuda",       # MI300X/ROCm環境でもPyTorchレイヤーではcudaとして認識されるため明示的指定が必須
         )
 
-        _vllm_config._get_and_verify_max_len = _orig_get_max_len  # patch を元に戻す
+        _vllm_config._get_and_verify_max_len = _orig_get_max_len  # rope_scaling patch を元に戻す
 
         self.sampling_params = SamplingParams(
             temperature=self.config["generation"]["temperature"],
