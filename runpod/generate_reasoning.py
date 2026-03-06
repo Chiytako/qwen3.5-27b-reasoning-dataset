@@ -166,14 +166,30 @@ class ReasoningGenerator:
         os.environ.setdefault("VLLM_ROCM_SHUFFLE_KV_CACHE_LAYOUT", "1")
         os.environ.setdefault("FA_GFX_ARCHS", "gfx942")  # MI300X のアーキテクチャ識別子
         # AITER: ROCm 7.2 で ViT Flash Attention 初期化クラッシュが発生するため無効化
-        # テキスト生成に AITER は不要 (AITER は主に attention kernel の最適化)
         os.environ["VLLM_ROCM_USE_AITER"] = "0"
+        # ViT (MMEncoder) の Flash Attention が ROCm 7.2 でクラッシュするため
+        # PyTorch ネイティブ SDPA をフォールバックとして使用
+        os.environ["VLLM_ATTENTION_BACKEND"] = "TORCH_SDPA"
 
         from vllm import LLM, SamplingParams
 
+        # --- vLLMのバージョン不整合による 'task' 引数エラーを回避するモンキーパッチ ---
+        try:
+            from vllm.engine.arg_utils import EngineArgs
+            if not hasattr(EngineArgs, '_patched_for_task'):
+                original_init = EngineArgs.__init__
+                def patched_init(self, *args, **kwargs):
+                    if 'task' in kwargs:
+                        kwargs.pop('task')
+                    original_init(self, *args, **kwargs)
+                EngineArgs.__init__ = patched_init
+                EngineArgs._patched_for_task = True
+        except ImportError:
+            pass
+        # -------------------------------------------------------------------
+
         self.model = LLM(
             model=model_name,
-            task="generate",      # テキスト生成のみ。ViT エンコーダーを初期化しない
             tensor_parallel_size=self.config["parallel"]["tensor_parallel_size"],
             max_model_len=self.config["model"]["max_model_len"],
             gpu_memory_utilization=self.config["model"]["gpu_memory_utilization"],
@@ -181,8 +197,7 @@ class ReasoningGenerator:
             dtype="auto",
             quantization=self.config["model"].get("quantization", None),
             enforce_eager=True,   # DeltaNet層のdtypeバグ回避に必須 (vLLM Issue#35238)
-            # device="cuda" は vLLM 0.17.0 で EngineArgs から削除されたため省略
-            # limit_mm_per_prompt は task="generate" で不要
+            limit_mm_per_prompt={"image": 0, "video": 0},  # テキスト生成のみ
         )
 
         self.sampling_params = SamplingParams(
