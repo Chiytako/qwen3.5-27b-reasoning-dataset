@@ -174,13 +174,11 @@ class ReasoningGenerator:
         self.domain_distribution = config["dataset"]["domain_distribution"]
         self.language_ratio = config["dataset"]["language_ratio"]
         
-        # 世代パラメータ
+        # 世代パラメータ (Llama.cpp サーバーがサポートする標準的なものに絞る)
         self.generation_params = {
-            "temperature": self.config["generation"]["temperature"],
-            "top_p": self.config["generation"]["top_p"],
-            "max_tokens": self.config["generation"]["max_tokens"],
-            "presence_penalty": 0.0,
-            "frequency_penalty": 0.0,
+            "temperature": self.config["generation"].get("temperature", 0.6),
+            "top_p": self.config["generation"].get("top_p", 0.95),
+            "max_tokens": self.config["generation"].get("max_tokens", 8192)
         }
         
     async def _test_connection(self):
@@ -264,7 +262,12 @@ class ReasoningGenerator:
                 )
                 
                 req_time = time.time() - req_start
-                generated_text = response.choices[0].message.content
+                generated_text = response.choices[0].message.content or ""
+                
+                if not generated_text.strip():
+                    logger.warning(f"Sample {prompt_data['id']}: APIから空の応答が返されました。")
+                    return None
+                    
                 thinking, final_response = parse_thinking_response(generated_text)
                 
                 return {
