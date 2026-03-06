@@ -27,47 +27,77 @@ apt-get update -qq && apt-get install -y -qq git wget curl htop tmux > /dev/null
 
 # --- Python環境 ---
 echo -e "\n${GREEN}[2/5] Python仮想環境のセットアップ...${NC}"
-# ROCm 7.2 テンプレートには PyTorch 2.9.1 がシステムにプリインストール済み
-# vLLM ROCm wheel は互換 PyTorch を同梱するため、venv は独立した環境として作成
-python3 -m venv /workspace/venv
+# --system-site-packages: テンプレートにプリインストール済みの PyTorch 2.9.1 ROCm 7.2 を継承
+# → vLLM ソースビルド時に PyTorch を再インストールする必要がなくなる
+python3 -m venv --system-site-packages /workspace/venv
 source /workspace/venv/bin/activate
 echo "  Python: $(python3 --version)"
+echo "  PyTorch (system): $(python3 -c 'import torch; print(torch.__version__)' 2>/dev/null || echo '未検出')"
 
-# --- 依存パッケージのインストール ---
-echo -e "\n${GREEN}[3/5] vLLM + 依存パッケージのインストール...${NC}"
+# --- 依存パッケージ + vLLM ソースビルド ---
+echo -e "\n${GREEN}[3/5] vLLM ソースビルド (Qwen3.5 対応版)...${NC}"
 python3 -m pip install --upgrade pip --quiet
-# uv: pip の依存解決フリーズを防ぐ超高速パッケージマネージャ
 python3 -m pip install uv --quiet
 
-# 軽量ライブラリ (数秒で完了)
+# 軽量ライブラリ
 echo "  軽量ライブラリをインストール中..."
 uv pip install transformers>=4.48.0 pyyaml tqdm datasets huggingface_hub --quiet
 
-# vLLM ROCm 公式 pre-built wheel
+# ビルドツール
+echo "  ビルドツールをインストール中..."
+pip install --upgrade setuptools setuptools_scm wheel ninja --quiet
+
+# vLLM ソース取得
 # 背景:
-#   - ROCm 7.2 + Python 3.12 環境では wheels.vllm.ai の公式 ROCm ホイールが利用可能
-#   - ソースビルド (30〜60分) が不要で数分でインストール完了
-#   - このホイールは ROCm 対応 PyTorch を同梱しており、バージョン互換性は保証済み
-#   - AMD は Qwen3.5 の Day 0 サポートを公式に提供 (https://www.amd.com)
-echo -e "\n${YELLOW}vLLM ROCm pre-built wheel をインストール中 (数分で完了します)...${NC}"
-uv pip install vllm --extra-index-url https://wheels.vllm.ai/rocm/
+#   - wheels.vllm.ai の最新安定版は 0.16.0+rocm700 で Qwen3.5 未対応
+#   - Qwen3.5 (Qwen3_5ForConditionalGeneration) 対応は vLLM 0.17.0 以降
+#   - ROCm 用 nightly wheel は存在しないためソースビルドが唯一の手段
+#   - BUILD_TRITON=0: Triton コンパイルを無効化 (MI300X では CK の方が高速なため問題なし)
+VLLM_SRC="/workspace/vllm-src"
+if [ -d "$VLLM_SRC/.git" ]; then
+    echo "  vLLM ソースを更新中..."
+    git -C "$VLLM_SRC" pull --ff-only
+else
+    echo "  vLLM ソースをクローン中..."
+    git clone --depth=1 https://github.com/vllm-project/vllm.git "$VLLM_SRC"
+fi
+
+echo -e "\n${YELLOW}vLLM を ROCm 向けにビルド中 (30〜60分かかります)...${NC}"
+echo "  ログ: /tmp/vllm_build.log"
+echo "  進捗確認: tail -f /tmp/vllm_build.log | grep -E '^\[|error:'"
+echo ""
+
+cd "$VLLM_SRC"
+BUILD_TRITON=0 \
+VLLM_USE_TRITON_FLASH_ATTN=0 \
+PYTORCH_ROCM_ARCH=gfx942 \
+VLLM_TARGET_DEVICE=rocm \
+MAX_JOBS=4 \
+    pip install -e . --no-build-isolation 2>&1 | tee /tmp/vllm_build.log
+BUILD_EXIT=${PIPESTATUS[0]}
+cd -
+
+if [ "$BUILD_EXIT" -ne 0 ]; then
+    echo -e "\n${RED}❌ vLLM ビルド失敗。エラー箇所:${NC}"
+    grep -n " error:" /tmp/vllm_build.log | grep -iv "warning\|note\|ignored" | head -20
+    exit 1
+fi
 
 echo ""
 echo -n "  vLLM バージョン:   " && python3 -c 'import vllm; print(vllm.__version__)'
 echo -n "  PyTorch バージョン: " && python3 -c 'import torch; print(torch.__version__)'
-echo -n "  ROCm バージョン:   " && python3 -c 'import torch; print(getattr(torch.version, "hip", "N/A"))'
-
-# Qwen3.5 (Qwen3_5ForConditionalGeneration) サポート確認
 echo -n "  Qwen3.5 サポート:  "
 python3 -c '
 from vllm.model_executor.models import ModelRegistry
-if "Qwen3_5ForConditionalGeneration" in ModelRegistry._model_registry:
-    print("OK (Qwen3_5ForConditionalGeneration 登録済み)")
+try:
+    supported = list(ModelRegistry._registry.keys())
+except:
+    supported = [k for k in dir(ModelRegistry) if "Qwen" in k]
+if any("Qwen3_5" in s for s in supported):
+    print("OK")
 else:
-    # 全 Qwen 系モデルを表示してデバッグ
-    qwen_models = [k for k in ModelRegistry._model_registry if "Qwen" in k]
-    print("WARNING: Qwen3.5 未登録。登録済み Qwen モデル:", qwen_models)
-' 2>/dev/null || echo "確認スキップ (実行時に確認してください)"
+    print("WARNING: Qwen3_5 未登録 →", [s for s in supported if "Qwen" in s])
+' 2>/dev/null || echo "確認スキップ"
 
 # --- プロジェクトのセットアップ ---
 echo -e "\n${GREEN}[4/5] プロジェクトディレクトリのセットアップ...${NC}"
@@ -106,7 +136,7 @@ echo -e "${GREEN} ✓ セットアップ完了!${NC}"
 echo -e "${BLUE}==========================================${NC}"
 echo ""
 echo -e "GPU構成: ${YELLOW}AMD MI300X 192GB x1${NC}"
-echo -e "環境:    ${YELLOW}PyTorch (vLLM同梱版) + ROCm 7.2 pre-built wheel${NC}"
+echo -e "環境:    ${YELLOW}vLLM ソースビルド + ROCm 7.2 (BUILD_TRITON=0, CK使用)${NC}"
 echo -e "モデル:  ${YELLOW}Qwen3.5-27B フルパラメータ (~54GB/GPU)${NC}"
 echo ""
 echo -e "${GREEN}次のステップ:${NC}"
