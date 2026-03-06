@@ -294,28 +294,30 @@ class ReasoningGenerator:
 
     def _adjust_concurrency(self, avg_latency: float):
         """レスポンス待機時間に基づいて同時接続数を動的に増減させる(Load Balancing)"""
-        if avg_latency == 0:
-            return
-            
-        old_concurrency = self.current_concurrency
-        
-        # ターゲットレイテンシ(例:30秒)に対して早すぎるならまだ余裕がある->並列数を増やす
-        # ターゲットより遅いならサーバーが詰まっている->並列数を減らす
-        if avg_latency < self.concurrency_target_latency * 0.8:
-            # 余裕がある: +2ずつ増やす
-            self.current_concurrency = min(self.concurrency_max_limit, self.current_concurrency + 2)
-        elif avg_latency > self.concurrency_target_latency * 1.5:
-            # 詰まりすぎ: -4ずつ急激に減らす(最低値4)
-            self.current_concurrency = max(4, self.current_concurrency - 4)
-        elif avg_latency > self.concurrency_target_latency * 1.2:
-            # 少し遅い: -1ずつ減らす
-            self.current_concurrency = max(4, self.current_concurrency - 1)
-            
-        if old_concurrency != self.current_concurrency:
-            if self.current_concurrency > old_concurrency:
-                logger.info(f"⚡ [Auto-Scale] 平均応答 {avg_latency:.1f}s 極めて良好。同時接続数を拡張: {old_concurrency} -> {self.current_concurrency}")
-            else:
-                logger.warning(f"⏳ [Auto-Scale] 平均応答 {avg_latency:.1f}s サーバー過負荷を検知。同時接続数を抑制: {old_concurrency} -> {self.current_concurrency}")
+        # 安定動作のため、自動調整機能をコメントアウト
+        pass
+        # if avg_latency == 0:
+        #     return
+        #     
+        # old_concurrency = self.current_concurrency
+        # 
+        # # ターゲットレイテンシ(例:30秒)に対して早すぎるならまだ余裕がある->並列数を増やす
+        # # ターゲットより遅いならサーバーが詰まっている->並列数を減らす
+        # if avg_latency < self.concurrency_target_latency * 0.8:
+        #     # 余裕がある: +2ずつ増やす
+        #     self.current_concurrency = min(self.concurrency_max_limit, self.current_concurrency + 2)
+        # elif avg_latency > self.concurrency_target_latency * 1.5:
+        #     # 詰まりすぎ: -4ずつ急激に減らす(最低値4)
+        #     self.current_concurrency = max(4, self.current_concurrency - 4)
+        # elif avg_latency > self.concurrency_target_latency * 1.2:
+        #     # 少し遅い: -1ずつ減らす
+        #     self.current_concurrency = max(4, self.current_concurrency - 1)
+        #     
+        # if old_concurrency != self.current_concurrency:
+        #     if self.current_concurrency > old_concurrency:
+        #         logger.info(f"⚡ [Auto-Scale] 平均応答 {avg_latency:.1f}s 極めて良好。同時接続数を拡張: {old_concurrency} -> {self.current_concurrency}")
+        #     else:
+        #         logger.warning(f"⏳ [Auto-Scale] 平均応答 {avg_latency:.1f}s サーバー過負荷を検知。同時接続数を抑制: {old_concurrency} -> {self.current_concurrency}")
 
     async def run(self, num_samples: int):
         """メイン生成ループ"""
