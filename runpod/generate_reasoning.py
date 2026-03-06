@@ -164,6 +164,18 @@ class ReasoningGenerator:
         # GPU指定
         os.environ["CUDA_VISIBLE_DEVICES"] = str(self.gpu_id)
 
+        # Qwen3.5の rope_scaling は vLLM が要求する "factor" キーを持たない形式のため、
+        # _get_and_verify_max_len が hf_config を直接読む前に monkey-patch で補完する。
+        # rope_scaling引数渡しでは hf_config.rope_scaling は上書きされないため、この方法が必要。
+        import vllm.config as _vllm_config
+        _orig_get_max_len = _vllm_config._get_and_verify_max_len
+        def _patched_get_max_len(hf_config, *args, **kwargs):
+            rope_scaling = getattr(hf_config, "rope_scaling", None)
+            if isinstance(rope_scaling, dict) and "factor" not in rope_scaling:
+                hf_config.rope_scaling = {**rope_scaling, "factor": 4.0}
+            return _orig_get_max_len(hf_config, *args, **kwargs)
+        _vllm_config._get_and_verify_max_len = _patched_get_max_len
+
         self.model = LLM(
             model=model_name,
             tensor_parallel_size=self.config["parallel"]["tensor_parallel_size"],
@@ -174,8 +186,9 @@ class ReasoningGenerator:
             quantization=self.config["model"].get("quantization", None),
             enforce_eager=True,  # メモリ効率のため
             device="cuda",       # MI300X/ROCm環境でもPyTorchレイヤーではcudaとして認識されるため明示的指定が必須
-            rope_scaling={"type": "yarn", "factor": 4.0},  # Qwen3.5 config.json の rope_scaling に "factor" キーがなくvLLM assertが失敗するため上書き
         )
+
+        _vllm_config._get_and_verify_max_len = _orig_get_max_len  # patch を元に戻す
 
         self.sampling_params = SamplingParams(
             temperature=self.config["generation"]["temperature"],
