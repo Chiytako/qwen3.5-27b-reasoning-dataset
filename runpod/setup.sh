@@ -54,6 +54,8 @@ if [ -d "$VLLM_SRC/.git" ]; then
 else
     git clone https://github.com/vllm-project/vllm.git "$VLLM_SRC"
 fi
+# ビルドに必要な依存パッケージを先行インストール
+pip install setuptools_scm wheel ninja cmake
 # ROCm ターゲットでビルド・インストール
 cd "$VLLM_SRC"
 VLLM_TARGET_DEVICE=rocm pip install -e . --no-build-isolation
