@@ -51,10 +51,10 @@ else
     DETECTED_GPUS=$(nvidia-smi --query-gpu=index --format=csv,noheader | wc -l)
 fi
 echo ""
-echo -e "検出GPU数: ${GREEN}$DETECTED_GPUS${NC} / 必要: ${YELLOW}$NUM_WORKERS${NC}"
+echo -e "検出GPU数: ${GREEN}$DETECTED_GPUS${NC}"
 
-if [ "$DETECTED_GPUS" -lt "$NUM_WORKERS" ]; then
-    echo -e "${RED}エラー: 必要なGPU数($NUM_WORKERS)が不足しています。${NC}"
+if [ "$DETECTED_GPUS" -lt 1 ]; then
+    echo -e "${RED}エラー: GPUが検出されませんでした。${NC}"
     exit 1
 fi
 echo ""
@@ -70,77 +70,31 @@ if [ $? -ne 0 ]; then
 fi
 echo -e "${GREEN}✓ ドライラン成功${NC}"
 
-# 2. 並列データ生成
+# 2. APIサーバーの起動
 echo ""
-echo -e "${GREEN}[2/5] データ生成開始 (${NUM_WORKERS}ワーカー並列)${NC}"
-echo "ログは $LOG_DIR/worker_*.log に出力されます"
+echo -e "${GREEN}[2/5] SGLang APIサーバー起動${NC}"
+bash runpod/start_sglang_server.sh
+if [ $? -ne 0 ]; then
+    echo -e "${RED}❌ APIサーバーの起動に失敗しました。${NC}"
+    exit 1
+fi
+
+# 3. 超並列データ生成 (API クライアント)
+echo ""
+echo -e "${GREEN}[3/5] データ生成開始 (SGLang Async API)${NC}"
+echo "ログは $LOG_DIR/generation_$TIMESTAMP.log に出力されます"
 echo ""
 
-# 各ワーカーをバックグラウンドで起動
-PIDS=()
+# APIクライアントとしてスクリプトを実行
+python runpod/generate_reasoning.py \
+    --config "$CONFIG" \
+    --worker-id 0 \
+    2>&1 | tee "$LOG_DIR/generation_$TIMESTAMP.log"
 
-for i in $(seq 0 $((NUM_WORKERS - 1))); do
-    echo "Worker $i を GPU $i で起動中..."
-    CUDA_VISIBLE_DEVICES=$i python runpod/generate_reasoning.py \
-        --config "$CONFIG" \
-        --worker-id $i \
-        --gpu-id $i \
-        > "$LOG_DIR/worker_${i}_$TIMESTAMP.log" 2>&1 &
-    PIDS+=($!)
-    echo "  PID: ${PIDS[$i]}"
-done
-
-echo ""
-echo "全 $NUM_WORKERS ワーカー起動完了"
-echo "PIDs: ${PIDS[*]}"
-
-# 進捗モニタリング
-echo ""
-echo "=== 進捗モニタリング ==="
-
-monitor_progress() {
-    while true; do
-        TOTAL=0
-        RUNNING=0
-        for i in $(seq 0 $((NUM_WORKERS - 1))); do
-            FILE="$PROJECT_DIR/output/raw/worker_$(printf '%02d' $i).jsonl"
-            if [ -f "$FILE" ]; then
-                COUNT=$(wc -l < "$FILE" 2>/dev/null || echo 0)
-                TOTAL=$((TOTAL + COUNT))
-            fi
-            # ワーカーの生存確認
-            if [ $i -lt ${#PIDS[@]} ] && kill -0 ${PIDS[$i]} 2>/dev/null; then
-                RUNNING=$((RUNNING + 1))
-            fi
-        done
-
-        # GPU使用状況
-        if command -v rocm-smi &> /dev/null; then
-            GPU_USAGE=$(rocm-smi --showuse | grep -o '[0-9]*%' | tr -d '%' | awk '{sum+=$1; n++} END {if(n>0) printf "%.0f", sum/n; else print 0}')
-        else
-            GPU_USAGE=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null | awk '{sum+=$1; n++} END {if(n>0) printf "%.0f", sum/n; else print 0}')
-        fi
-
-        echo -e "[$(date +%H:%M:%S)] 生成済: ${GREEN}$TOTAL${NC} 件 | 稼働ワーカー: ${YELLOW}$RUNNING/$NUM_WORKERS${NC} | 平均GPU使用率: ${BLUE}${GPU_USAGE}%${NC}"
-
-        # 全ワーカー終了チェック
-        if [ "$RUNNING" -eq 0 ]; then
-            echo -e "${GREEN}✓ すべてのワーカーが終了しました。${NC}"
-            break
-        fi
-
-        sleep 60
-    done
-}
-
-monitor_progress &
-MONITOR_PID=$!
-
-# 全プロセスの完了を待つ
-for pid in "${PIDS[@]}"; do
-    wait $pid 2>/dev/null || true
-done
-kill $MONITOR_PID 2>/dev/null || true
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
+    echo -e "${RED}❌ データ生成プロセスが異常終了しました。${NC}"
+    exit 1
+fi
 
 # 生成件数を集計
 TOTAL_RAW=0
@@ -154,25 +108,25 @@ echo "合計 (raw): $TOTAL_RAW 件"
 
 echo -e "${GREEN}✓ データ生成完了${NC}"
 
-# 3. 品質フィルタリング
+# 4. 品質フィルタリング
 echo ""
-echo -e "${GREEN}[3/5] 品質フィルタリング実行...${NC}"
+echo -e "${GREEN}[4/5] 品質フィルタリング実行...${NC}"
 python filter_quality.py \
     --config "$CONFIG" \
     --input-dir "$PROJECT_DIR/output/raw" \
     --output-dir "$PROJECT_DIR/output/filtered"
 
-# 4. マージとレポート生成
+# 5. マージとレポート生成
 echo ""
-echo -e "${GREEN}[4/5] データセットのマージとレポート生成...${NC}"
+echo -e "${GREEN}[5/5] データセットのマージとレポート生成...${NC}"
 python merge_outputs.py \
     --config "$CONFIG" \
     --input-dir "$PROJECT_DIR/output/filtered" \
     --output-dir "$PROJECT_DIR/output/final"
 
-# 5. HuggingFace Hub へのアップロード
+# 6. HuggingFace Hub へのアップロード
 echo ""
-echo -e "${GREEN}[5/5] HuggingFace Hubへのアップロード...${NC}"
+echo -e "${GREEN}[6/6] HuggingFace Hubへのアップロード...${NC}"
 if [ -f "$PROJECT_DIR/output/final/qwen-reasoning-dataset.jsonl" ]; then
     echo "リポジトリ: $HF_REPO_ID"
     python upload_to_hf.py \

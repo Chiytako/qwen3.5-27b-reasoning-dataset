@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.vllm.ai)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.phoronix.com)",
+      "WebFetch(domain:www.amd.com)",
+      "WebFetch(domain:rocm.blogs.amd.com)"
+    ]
+  }
+}

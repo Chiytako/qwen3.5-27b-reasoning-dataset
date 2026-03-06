@@ -11,16 +11,17 @@ Runpod/Vast.ai 並列処理対応
 """
 
 import argparse
+import asyncio
 import json
 import logging
 import os
 import random
 import sys
 import time
-import subprocess
-import signal
 from pathlib import Path
 from typing import Optional
+
+import openai
 
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -123,73 +124,25 @@ class PromptExpander:
 
 
 # =============================================================================
-# vLLM ROCm パッチ
-# =============================================================================
-
-def _patch_vllm_rocm_vit():
-    """
-    vLLM の rocm.py を直接パッチして ViT の Flash Attention を無効化する。
-
-    問題: Flash Attention は ROCm 7.2 / GFX9 で ViT 初期化時にクラッシュする。
-    VLLM_ATTENTION_BACKEND 環境変数はこのバージョンの vLLM では認識されない。
-    EngineCore は spawn 方式のサブプロセスのためインメモリパッチが伝播しない。
-    そのためソースファイルを直接書き換えてから LLM() を呼び出す。
-
-    環境変数 VLLM_ROCM_DISABLE_VIT_FLASH_ATTN=1 が設定されている場合、
-    FLASH_ATTN の代わりに TORCH_SDPA にフォールバックする。
-    """
-    rocm_py = "/workspace/vllm-src/vllm/platforms/rocm.py"
-    if not os.path.exists(rocm_py):
-        return
-
-    with open(rocm_py, "r") as f:
-        content = f.read()
-
-    PATCH_MARKER = "# PATCHED: VLLM_ROCM_DISABLE_VIT_FLASH_ATTN"
-    if PATCH_MARKER in content:
-        return  # 既にパッチ済み
-
-    # GFX9 ブロック内の FLASH_ATTN 選択部分に env var チェックを追加
-    # 実際のファイルは if ブロック内が12スペースインデント (class > def > if > body)
-    OLD = (
-        '            logger.info_once("Using Flash Attention backend for ViT model.")\n'
-        "            return AttentionBackendEnum.FLASH_ATTN\n"
-    )
-    NEW = (
-        f"            {PATCH_MARKER}\n"
-        "            import os as _vit_os\n"
-        '            if _vit_os.environ.get("VLLM_ROCM_DISABLE_VIT_FLASH_ATTN", "0") != "1":\n'
-        '                logger.info_once("Using Flash Attention backend for ViT model.")\n'
-        "                return AttentionBackendEnum.FLASH_ATTN\n"
-        '            logger.info_once("Using Torch SDPA backend for ViT model (FLASH_ATTN disabled by env).")\n'
-        "            return AttentionBackendEnum.TORCH_SDPA\n"
-    )
-
-    if OLD in content:
-        content = content.replace(OLD, NEW, 1)  # GFX9 ブロックの1箇所のみ
-        with open(rocm_py, "w") as f:
-            f.write(content)
-        logger.info("vLLM rocm.py パッチ適用: ViT Flash Attention → TORCH_SDPA")
-    else:
-        logger.warning(
-            "vLLM rocm.py のパッチ対象パターンが見つかりません。"
-            "ViT Flash Attention クラッシュが発生する可能性があります。"
-        )
-
-
-# =============================================================================
-# メイン生成エンジン
+# メイン生成エンジン ( 非同期 API クライアント )
 # =============================================================================
 
 class ReasoningGenerator:
-    """vLLMを使用したreasoning データ生成エンジン"""
+    """SGLang (OpenAI API互換サーバー) を使用した非同期推論エンジン"""
 
-    def __init__(self, config: dict, worker_id: int, gpu_id: int):
+    def __init__(self, config: dict, worker_id: int):
         self.config = config
         self.worker_id = worker_id
-        self.gpu_id = gpu_id
-        self.model = None
-        self.tokenizer = None
+        
+        # クライアント
+        self.api_base = config.get("api", {}).get("base_url", "http://localhost:8000/v1")
+        self.model_name = config.get("api", {}).get("model_name", "Qwen/Qwen3.5-27B")
+        self.client = openai.AsyncOpenAI(
+            api_key="EMPTY",
+            base_url=self.api_base,
+            timeout=1200.0,
+            max_retries=3
+        )
 
         # 出力ディレクトリ
         self.output_dir = Path(config["output"]["raw_dir"])
@@ -208,65 +161,31 @@ class ReasoningGenerator:
         # ドメイン分布の計算
         self.domain_distribution = config["dataset"]["domain_distribution"]
         self.language_ratio = config["dataset"]["language_ratio"]
-
-    def init_model(self):
-        """vLLMモデルを初期化"""
-        model_name = self.config["model"]["name"]
-        logger.info(f"Worker {self.worker_id}: モデル '{model_name}' をGPU {self.gpu_id} にロード中...")
-
-        # GPU指定
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(self.gpu_id)
-
-        # MI300X/ROCm パフォーマンス最適化環境変数
-        os.environ.setdefault("VLLM_ROCM_SHUFFLE_KV_CACHE_LAYOUT", "1")
-        os.environ.setdefault("FA_GFX_ARCHS", "gfx942")  # MI300X のアーキテクチャ識別子
-        # AITER: ROCm 7.2 で ViT Flash Attention 初期化クラッシュが発生するため無効化
-        os.environ["VLLM_ROCM_USE_AITER"] = "0"
-        # ViT (MMEncoder) の Flash Attention が ROCm 7.2 でクラッシュするため TORCH_SDPA を強制
-        # VLLM_ATTENTION_BACKEND はこのvLLMバージョンでは認識されないため、
-        # EngineCore subprocess に影響するよう rocm.py ソースを直接パッチする
-        os.environ["VLLM_ROCM_DISABLE_VIT_FLASH_ATTN"] = "1"
-        _patch_vllm_rocm_vit()
-
-        from vllm import LLM, SamplingParams
-
-        # --- vLLMのバージョン不整合による 'task' 引数エラーを回避するモンキーパッチ ---
-        try:
-            from vllm.engine.arg_utils import EngineArgs
-            if not hasattr(EngineArgs, '_patched_for_task'):
-                original_init = EngineArgs.__init__
-                def patched_init(self, *args, **kwargs):
-                    if 'task' in kwargs:
-                        kwargs.pop('task')
-                    original_init(self, *args, **kwargs)
-                EngineArgs.__init__ = patched_init
-                EngineArgs._patched_for_task = True
-        except ImportError:
-            pass
-        # -------------------------------------------------------------------
-
-        self.model = LLM(
-            model=model_name,
-            tensor_parallel_size=self.config["parallel"]["tensor_parallel_size"],
-            max_model_len=self.config["model"]["max_model_len"],
-            gpu_memory_utilization=self.config["model"]["gpu_memory_utilization"],
-            trust_remote_code=self.config["model"]["trust_remote_code"],
-            dtype="auto",
-            quantization=self.config["model"].get("quantization", None),
-            enforce_eager=True,   # DeltaNet層のdtypeバグ回避に必須 (vLLM Issue#35238)
-            limit_mm_per_prompt={"image": 0, "video": 0},  # テキスト生成のみ
-        )
-
-        self.sampling_params = SamplingParams(
-            temperature=self.config["generation"]["temperature"],
-            top_p=self.config["generation"]["top_p"],
-            top_k=self.config["generation"]["top_k"],
-            max_tokens=self.config["generation"]["max_tokens"],
-            min_tokens=self.config["generation"]["min_tokens"],
-            repetition_penalty=self.config["generation"]["repetition_penalty"],
-        )
-
-        logger.info(f"Worker {self.worker_id}: モデルのロード完了")
+        
+        # 世代パラメータ
+        self.generation_params = {
+            "temperature": self.config["generation"]["temperature"],
+            "top_p": self.config["generation"]["top_p"],
+            "max_tokens": self.config["generation"]["max_tokens"],
+            "presence_penalty": 0.0,
+            "frequency_penalty": 0.0,
+        }
+        
+    async def _test_connection(self):
+        """APIサーバーへの接続テスト"""
+        logger.info(f"Worker {self.worker_id}: APIサーバー ({self.api_base}) に接続テスト中...")
+        for i in range(10):
+            try:
+                models = await self.client.models.list()
+                if models.data:
+                    self.model_name = models.data[0].id
+                logger.info(f"Worker {self.worker_id}: 接続成功！サーバー検出モデル: {self.model_name}")
+                return True
+            except Exception as e:
+                logger.warning(f"接続待機中... ({i+1}/10): {e}")
+                await asyncio.sleep(5)
+        logger.error("APIサーバーへの接続に失敗しました。")
+        return False
 
     def _select_domain(self) -> str:
         """重み付きランダムでドメインを選択"""
@@ -315,76 +234,62 @@ class ReasoningGenerator:
 
         return system_prompt, user_prompt, tools
 
-    def generate_batch(self, batch_prompts: list[dict]) -> list[dict]:
-        """バッチ推論を実行"""
-        from vllm import SamplingParams
-
-        # vLLM用の入力を構築
-        conversations = []
-        for item in batch_prompts:
-            messages = [
-                {"role": "system", "content": item["system_prompt"]},
-                {"role": "user", "content": item["user_prompt"]},
-            ]
-            conversations.append(messages)
-
-        # バッチ推論実行（chat形式）
-        try:
-            outputs = self.model.chat(
-                messages=conversations,
-                sampling_params=self.sampling_params,
-                use_tqdm=False,
-            )
-        except Exception as e:
-            logger.error(f"Worker {self.worker_id}: バッチ推論エラー: {e}")
-            # フォールバック: テキスト生成モードで個別実行
-            outputs = []
-            for conv in conversations:
-                try:
-                    # メッセージをテキストに変換
-                    prompt_text = "\n".join([
-                        f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>"
-                        for m in conv
-                    ]) + "\n<|im_start|>assistant\n"
-
-                    result = self.model.generate(
-                        [prompt_text],
-                        self.sampling_params,
-                        use_tqdm=False
-                    )
-                    outputs.extend(result)
-                except Exception as e2:
-                    logger.error(f"Worker {self.worker_id}: 個別推論エラー: {e2}")
-                    outputs.append(None)
-
-        # 結果の処理
-        results = []
-        for i, output in enumerate(outputs):
-            if output is None:
-                continue
+    async def _generate_single(self, prompt_data: dict, semaphore: asyncio.Semaphore) -> Optional[dict]:
+        """単一のプロンプトに対する非同期生成"""
+        messages = [
+            {"role": "system", "content": prompt_data["system_prompt"]},
+            {"role": "user", "content": prompt_data["user_prompt"]},
+        ]
+        
+        async with semaphore:
             try:
-                generated_text = output.outputs[0].text
-                thinking, response = parse_thinking_response(generated_text)
-
-                result = {
-                    **batch_prompts[i],
+                response = await self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    **self.generation_params
+                )
+                
+                generated_text = response.choices[0].message.content
+                thinking, final_response = parse_thinking_response(generated_text)
+                
+                return {
+                    **prompt_data,
                     "raw_output": generated_text,
                     "thinking": thinking,
-                    "response": response,
+                    "response": final_response,
                     "thinking_steps": count_thinking_steps(thinking),
-                    "tool_calls": extract_tool_calls(response),
+                    "tool_calls": extract_tool_calls(final_response),
                     "has_tool_use": detect_tool_use_intent(generated_text),
-                    "output_tokens": len(output.outputs[0].token_ids),
+                    "output_tokens": response.usage.completion_tokens if response.usage else 0,
                 }
-                results.append(result)
             except Exception as e:
-                logger.warning(f"Worker {self.worker_id}: 出力処理エラー (index {i}): {e}")
+                logger.error(f"Sample {prompt_data['id']} 世代エラー: {e}")
+                return None
 
-        return results
+    async def generate_batch_async(self, batch_prompts: list[dict], concurrency: int) -> list[dict]:
+        """指定された同時接続数で非同期推論（バッチ）を実行"""
+        semaphore = asyncio.Semaphore(concurrency)
+        tasks = [self._generate_single(p, semaphore) for p in batch_prompts]
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # エラーとNoneを除外して返す
+        valid_results = []
+        for r in results:
+            if isinstance(r, Exception):
+                logger.warning(f"バッチ処理中の予期せぬエラー: {r}")
+                continue
+            if r is not None:
+                valid_results.append(r)
+                
+        return valid_results
 
-    def run(self, num_samples: int):
+    async def run(self, num_samples: int):
         """メイン生成ループ"""
-        logger.info(f"Worker {self.worker_id}: {num_samples} 件の生成を開始")
+        if not await self._test_connection():
+            return
+
+        logger.info(f"Worker {self.worker_id}: {num_samples} 件の生成を開始 (非同期API)")
 
         # チェックポイントから再開
         state = self.checkpoint.load()
@@ -392,8 +297,9 @@ class ReasoningGenerator:
 
         if start_index > 0:
             logger.info(f"Worker {self.worker_id}: {start_index} 件から再開")
-
-        batch_size = self.config["generation"]["batch_size"]
+            
+        concurrency_limit = self.config.get("api", {}).get("concurrency", 128)
+        batch_size = self.config["generation"].get("batch_size", 256) # SGLang向けには少し大きめのチャンクを作成
         checkpoint_interval = self.config["parallel"]["checkpoint_interval"]
         completed = start_index
         total_time = 0
@@ -401,7 +307,7 @@ class ReasoningGenerator:
         while completed < num_samples:
             batch_start = time.time()
 
-            # 現在のバッチのプロンプトを生成
+            # ここでの"batch"は非同期タスクの投入単位
             current_batch_size = min(batch_size, num_samples - completed)
             batch_prompts = []
 
@@ -420,8 +326,11 @@ class ReasoningGenerator:
                     "tool_definitions": [t["function"] for t in tools] if tools else [],
                 })
 
-            # バッチ推論実行
-            results = self.generate_batch(batch_prompts)
+            # 超高並列非同期推論の実行
+            results = await self.generate_batch_async(batch_prompts, concurrency=concurrency_limit)
+            
+            # 成功した数だけ進捗を進める（API失敗時などの欠損を防ぐ）
+            success_count = len(results)
 
             # 結果を保存
             for result in results:
@@ -444,10 +353,16 @@ class ReasoningGenerator:
                 )
                 append_jsonl(sample.to_training_format(), str(self.output_file))
 
-            completed += len(results)
+            # もしエラーで１件も通らなかった場合は少しリトライ待ち
+            if success_count == 0:
+                logger.warning("バッチ全滅。APIサーバーがダウンしている可能性があります。5秒待ちます...")
+                await asyncio.sleep(5)
+                continue
+
+            completed += success_count
             batch_time = time.time() - batch_start
             total_time += batch_time
-            speed = len(results) / batch_time if batch_time > 0 else 0
+            speed = success_count / batch_time if batch_time > 0 else 0
             eta = (num_samples - completed) / speed / 3600 if speed > 0 else float('inf')
 
             logger.info(
@@ -479,89 +394,10 @@ class ReasoningGenerator:
 
 
 # =============================================================================
-# 並列実行マネージャー
-# =============================================================================
-
-def launch_parallel_workers(config: dict, script_path: str):
-    """8つのワーカープロセスを並列起動"""
-    num_workers = config["parallel"]["num_workers"]
-    samples_per_worker = config["parallel"]["samples_per_worker"]
-
-    logger.info(f"=== 並列生成開始: {num_workers} ワーカー x {samples_per_worker} 件 ===")
-    logger.info(f"合計目標: {num_workers * samples_per_worker} 件")
-
-    processes = []
-    for worker_id in range(num_workers):
-        cmd = [
-            sys.executable, script_path,
-            "--config", str(Path(script_path).parent.parent / "config.yaml"),
-            "--worker-id", str(worker_id),
-            "--gpu-id", str(worker_id),
-            "--num-samples", str(samples_per_worker),
-        ]
-
-        log_file = Path(config["output"]["base_dir"]) / "logs" / f"worker_{worker_id:02d}.log"
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(log_file, "w") as lf:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=lf,
-                stderr=subprocess.STDOUT,
-                env={**os.environ, "CUDA_VISIBLE_DEVICES": str(worker_id)},
-            )
-            processes.append((worker_id, proc))
-            logger.info(f"Worker {worker_id} 起動 (PID: {proc.pid}, GPU: {worker_id})")
-
-        # GPU間の初期化衝突を避けるため少し待つ
-        time.sleep(5)
-
-    # 全プロセスの完了を監視
-    logger.info("全ワーカーの完了を待機中...")
-
-    def signal_handler(signum, frame):
-        logger.warning("中断シグナルを受信。全ワーカーを終了します...")
-        for wid, proc in processes:
-            proc.terminate()
-        sys.exit(1)
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    while processes:
-        for worker_id, proc in list(processes):
-            ret = proc.poll()
-            if ret is not None:
-                if ret == 0:
-                    logger.info(f"Worker {worker_id} 正常完了")
-                else:
-                    logger.error(f"Worker {worker_id} 異常終了 (code: {ret})")
-                processes.remove((worker_id, proc))
-
-        if processes:
-            # 進捗確認
-            total_completed = 0
-            for wid in range(num_workers):
-                output_file = Path(config["output"]["raw_dir"]) / f"worker_{wid:02d}.jsonl"
-                if output_file.exists():
-                    total_completed += count_jsonl_lines(str(output_file))
-
-            total_target = num_workers * samples_per_worker
-            pct = 100 * total_completed / total_target if total_target > 0 else 0
-            logger.info(
-                f"全体進捗: {total_completed}/{total_target} ({pct:.1f}%) | "
-                f"稼働中ワーカー: {len(processes)}"
-            )
-            time.sleep(60)  # 1分ごとに進捗チェック
-
-    logger.info("=== 全ワーカー完了 ===")
-
-
-# =============================================================================
 # エントリポイント
 # =============================================================================
 
-def main():
+async def async_main():
     parser = argparse.ArgumentParser(description="Qwen3.5-27B Reasoning データセット生成")
     parser.add_argument("--config", type=str, default="../config.yaml", help="設定ファイルのパス")
     parser.add_argument("--worker-id", type=int, default=0, help="ワーカーID")
@@ -584,16 +420,16 @@ def main():
         Path(config["output"][d]).mkdir(parents=True, exist_ok=True)
 
     if args.auto_parallel:
-        # 並列実行モード
-        launch_parallel_workers(config, str(Path(__file__).resolve()))
+        logger.error("--auto-parallel は APIサーバー方式では非推奨になり削除されました。run_pipeline.sh を使用してください。")
         return
 
     num_samples = args.num_samples or config["parallel"]["samples_per_worker"]
 
+    generator = ReasoningGenerator(config, args.worker_id)
+    
     if args.dry_run:
         # ドライラン: プロンプト生成テスト
         logger.info("=== ドライランモード ===")
-        generator = ReasoningGenerator(config, args.worker_id, args.gpu_id)
         for i in range(min(5, num_samples)):
             domain = generator._select_domain()
             language = generator._select_language()
@@ -607,9 +443,11 @@ def main():
         return
 
     # 通常実行
-    generator = ReasoningGenerator(config, args.worker_id, args.gpu_id)
-    generator.init_model()
-    generator.run(num_samples)
+    await generator.run(num_samples)
+
+
+def main():
+    asyncio.run(async_main())
 
 
 if __name__ == "__main__":

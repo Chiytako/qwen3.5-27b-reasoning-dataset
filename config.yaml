@@ -2,14 +2,11 @@
 # Qwen3.5-27B Reasoning Dataset Generation Pipeline Configuration
 # =============================================================================
 
-# --- モデル設定 ---
-model:
-  name: "Qwen/Qwen3.5-27B"                  # 192GBあるためフルパラメータ(FP16/BF16)モデルで推論能力を最大化
-  max_model_len: 24576                      # 超大容量VRAMを活かして24Kの巨大コンテキスト長を確保
-  gpu_memory_utilization: 0.95              # MI300Xの192GBのうち95％(約182GB)をvLLMで使用
-  quantization: null                        # 量子化なし（生成スピードと推論限界性能を両立）
-  trust_remote_code: true
-
+# --- APIサーバー設定 (SGLang) ---
+api:
+  base_url: "http://localhost:8000/v1"      # SGLang API サーバーのエンドポイント
+  model_name: "Qwen/Qwen3.5-27B"            # 使用するモデル識別子
+  concurrency: 256                          # 非同期リクエストの最大同時実行数（MI300Xの広帯域を活かして超高並列）
 # --- 推論パラメータ ---
 generation:
   temperature: 0.6                          # Reasoning/Codingタスク向けの推奨値(0.6)
@@ -21,12 +18,10 @@ generation:
   num_samples_per_prompt: 3                 # rejection sampling用: 各プロンプトにN個生成
   batch_size: 256                           # メモリ帯域5.3TB/s・HBM3 192GBをフル活用し、スループットを最大化する超巨大バッチ
 
-# --- 並列処理設定 ---
+# --- 並列・推論設定 (API Client側) ---
 parallel:
-  num_workers: 1                            # MI300X 1枚
-  tensor_parallel_size: 1                   # GPU 1枚で実行
-  samples_per_worker: 1000000               # 1基で100万件を担当
-  checkpoint_interval: 256                  # Spotインスタンスの中断対策：1バッチ(256件)ごとに即時保存
+  samples_per_worker: 1000000               # 目標生成件数
+  checkpoint_interval: 1024                 # API方式では安定性が高いため、チェックポイント間隔を拡大
 
 # --- データセット設定 ---
 dataset:
