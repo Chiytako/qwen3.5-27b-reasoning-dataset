@@ -123,6 +123,60 @@ class PromptExpander:
 
 
 # =============================================================================
+# vLLM ROCm パッチ
+# =============================================================================
+
+def _patch_vllm_rocm_vit():
+    """
+    vLLM の rocm.py を直接パッチして ViT の Flash Attention を無効化する。
+
+    問題: Flash Attention は ROCm 7.2 / GFX9 で ViT 初期化時にクラッシュする。
+    VLLM_ATTENTION_BACKEND 環境変数はこのバージョンの vLLM では認識されない。
+    EngineCore は spawn 方式のサブプロセスのためインメモリパッチが伝播しない。
+    そのためソースファイルを直接書き換えてから LLM() を呼び出す。
+
+    環境変数 VLLM_ROCM_DISABLE_VIT_FLASH_ATTN=1 が設定されている場合、
+    FLASH_ATTN の代わりに TORCH_SDPA にフォールバックする。
+    """
+    rocm_py = "/workspace/vllm-src/vllm/platforms/rocm.py"
+    if not os.path.exists(rocm_py):
+        return
+
+    with open(rocm_py, "r") as f:
+        content = f.read()
+
+    PATCH_MARKER = "# PATCHED: VLLM_ROCM_DISABLE_VIT_FLASH_ATTN"
+    if PATCH_MARKER in content:
+        return  # 既にパッチ済み
+
+    # GFX9 ブロック内の FLASH_ATTN 選択部分に env var チェックを追加
+    OLD = (
+        '        logger.info_once("Using Flash Attention backend for ViT model.")\n'
+        "        return AttentionBackendEnum.FLASH_ATTN\n"
+    )
+    NEW = (
+        f"        {PATCH_MARKER}\n"
+        "        import os as _vit_os\n"
+        '        if _vit_os.environ.get("VLLM_ROCM_DISABLE_VIT_FLASH_ATTN", "0") != "1":\n'
+        '            logger.info_once("Using Flash Attention backend for ViT model.")\n'
+        "            return AttentionBackendEnum.FLASH_ATTN\n"
+        '        logger.info_once("Using Torch SDPA backend for ViT model (FLASH_ATTN disabled by env).")\n'
+        "        return AttentionBackendEnum.TORCH_SDPA\n"
+    )
+
+    if OLD in content:
+        content = content.replace(OLD, NEW, 1)  # GFX9 ブロックの1箇所のみ
+        with open(rocm_py, "w") as f:
+            f.write(content)
+        logger.info("vLLM rocm.py パッチ適用: ViT Flash Attention → TORCH_SDPA")
+    else:
+        logger.warning(
+            "vLLM rocm.py のパッチ対象パターンが見つかりません。"
+            "ViT Flash Attention クラッシュが発生する可能性があります。"
+        )
+
+
+# =============================================================================
 # メイン生成エンジン
 # =============================================================================
 
@@ -167,9 +221,11 @@ class ReasoningGenerator:
         os.environ.setdefault("FA_GFX_ARCHS", "gfx942")  # MI300X のアーキテクチャ識別子
         # AITER: ROCm 7.2 で ViT Flash Attention 初期化クラッシュが発生するため無効化
         os.environ["VLLM_ROCM_USE_AITER"] = "0"
-        # ViT (MMEncoder) の Flash Attention が ROCm 7.2 でクラッシュするため
-        # PyTorch ネイティブ SDPA をフォールバックとして使用
-        os.environ["VLLM_ATTENTION_BACKEND"] = "TORCH_SDPA"
+        # ViT (MMEncoder) の Flash Attention が ROCm 7.2 でクラッシュするため TORCH_SDPA を強制
+        # VLLM_ATTENTION_BACKEND はこのvLLMバージョンでは認識されないため、
+        # EngineCore subprocess に影響するよう rocm.py ソースを直接パッチする
+        os.environ["VLLM_ROCM_DISABLE_VIT_FLASH_ATTN"] = "1"
+        _patch_vllm_rocm_vit()
 
         from vllm import LLM, SamplingParams
 
