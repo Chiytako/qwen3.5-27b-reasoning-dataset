@@ -57,7 +57,7 @@ echo "ログファイル: $SERVER_LOG"
     -c 32768 \
     -np 128 \
     -ngld 999 \
-    -fa \
+    -fa on \
     -cb \
     --alias "Qwen/Qwen3.5-27B" \
     > "$SERVER_LOG" 2>&1 &
