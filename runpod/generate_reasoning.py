@@ -150,18 +150,19 @@ def _patch_vllm_rocm_vit():
         return  # 既にパッチ済み
 
     # GFX9 ブロック内の FLASH_ATTN 選択部分に env var チェックを追加
+    # 実際のファイルは if ブロック内が12スペースインデント (class > def > if > body)
     OLD = (
-        '        logger.info_once("Using Flash Attention backend for ViT model.")\n'
-        "        return AttentionBackendEnum.FLASH_ATTN\n"
-    )
-    NEW = (
-        f"        {PATCH_MARKER}\n"
-        "        import os as _vit_os\n"
-        '        if _vit_os.environ.get("VLLM_ROCM_DISABLE_VIT_FLASH_ATTN", "0") != "1":\n'
         '            logger.info_once("Using Flash Attention backend for ViT model.")\n'
         "            return AttentionBackendEnum.FLASH_ATTN\n"
-        '        logger.info_once("Using Torch SDPA backend for ViT model (FLASH_ATTN disabled by env).")\n'
-        "        return AttentionBackendEnum.TORCH_SDPA\n"
+    )
+    NEW = (
+        f"            {PATCH_MARKER}\n"
+        "            import os as _vit_os\n"
+        '            if _vit_os.environ.get("VLLM_ROCM_DISABLE_VIT_FLASH_ATTN", "0") != "1":\n'
+        '                logger.info_once("Using Flash Attention backend for ViT model.")\n'
+        "                return AttentionBackendEnum.FLASH_ATTN\n"
+        '            logger.info_once("Using Torch SDPA backend for ViT model (FLASH_ATTN disabled by env).")\n'
+        "            return AttentionBackendEnum.TORCH_SDPA\n"
     )
 
     if OLD in content:
