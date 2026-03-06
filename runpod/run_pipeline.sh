@@ -70,14 +70,11 @@ if [ $? -ne 0 ]; then
 fi
 echo -e "${GREEN}✓ ドライラン成功${NC}"
 
-# 2. APIサーバーの起動
+# 2. APIサーバーの起動確認
 echo ""
-echo -e "${GREEN}[2/5] Llama.cpp APIサーバー起動${NC}"
-bash runpod/start_llama_server.sh
-if [ $? -ne 0 ]; then
-    echo -e "${RED}❌ APIサーバーの起動に失敗しました。${NC}"
-    exit 1
-fi
+echo -e "${GREEN}[2/5] Llama.cpp APIサーバー確認${NC}"
+echo -e "${YELLOW}※ 事前に start_llama_server.sh を実行して、複数ポート(8000～)でサーバーを立ち上げておいてください。${NC}"
+sleep 2
 
 # 3. 超並列データ生成 (API クライアント)
 echo ""
