@@ -42,9 +42,9 @@ python3 -m pip install uv --quiet
 echo "  依存関係ツールをインストール中..."
 uv pip install transformers>=4.48.0 pyyaml tqdm datasets huggingface_hub openai aiohttp --quiet
 
-# SGLang インストール
-echo "  SGLang (FlashInfer対応) をインストール中..."
-python3 -m pip install "sglang[all]" --quiet
+# SGLang インストール (Qwen3.5対応の最新mainブランチから取得)
+echo "  SGLang (FlashInfer対応, mainブランチ) をインストール中..."
+uv pip install "git+https://github.com/sgl-project/sglang.git#subdirectory=python&egg=sglang[all]" --quiet
 
 echo ""
 echo -n "  SGLang バージョン:   " && python3 -c 'import sglang; print(sglang.__version__)' 2>/dev/null || echo "Unknown"

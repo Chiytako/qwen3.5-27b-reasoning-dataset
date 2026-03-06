@@ -55,6 +55,8 @@ python3 -m sglang.launch_server \
     --mem-fraction-static 0.95 \
     --context-length 24576 \
     --enable-dp-attention \
+    --reasoning-parser qwen3 \
+    --tool-call-parser qwen3_coder \
     > "$SERVER_LOG" 2>&1 &
 
 SERVER_PID=$!
