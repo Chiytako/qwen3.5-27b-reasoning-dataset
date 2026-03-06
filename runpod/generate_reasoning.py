@@ -186,7 +186,8 @@ class ReasoningGenerator:
     async def _test_connection(self):
         """APIサーバーへの接続テスト"""
         logger.info(f"Worker {self.worker_id}: APIサーバー ({self.api_base}) に接続テスト中...")
-        for i in range(10):
+        # 複数インスタンスの同時ロードには非常に時間がかかるため、タイムアウトを大幅に増やす (60回 * 10秒 = 10分)
+        for i in range(60):
             try:
                 models = await self.client.models.list()
                 if models.data:
@@ -194,9 +195,9 @@ class ReasoningGenerator:
                 logger.info(f"Worker {self.worker_id}: 接続成功！サーバー検出モデル: {self.model_name}")
                 return True
             except Exception as e:
-                logger.warning(f"接続待機中... ({i+1}/10): {e}")
-                await asyncio.sleep(5)
-        logger.error("APIサーバーへの接続に失敗しました。")
+                logger.warning(f"接続待機中... ({i+1}/60): {e}")
+                await asyncio.sleep(10)
+        logger.error("APIサーバーへの接続に失敗しました（タイムアウト）。")
         return False
 
     def _select_domain(self) -> str:
