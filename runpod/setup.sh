@@ -22,7 +22,7 @@ echo ""
 
 # --- システム更新 ---
 echo -e "${GREEN}[1/5] システムパッケージの更新...${NC}"
-apt-get update -qq && apt-get install -y -qq git wget curl htop tmux ninja-build > /dev/null 2>&1 \
+apt-get update -qq && apt-get install -y -qq git wget curl htop tmux ninja-build cmake > /dev/null 2>&1 \
     || echo -e "${YELLOW}  一部のパッケージの更新をスキップしました。${NC}" || true
 
 # --- Python環境 ---
