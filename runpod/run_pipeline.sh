@@ -142,6 +142,16 @@ for pid in "${PIDS[@]}"; do
 done
 kill $MONITOR_PID 2>/dev/null || true
 
+# 生成件数を集計
+TOTAL_RAW=0
+for f in "$PROJECT_DIR/output/raw/"worker_*.jsonl; do
+    [ -f "$f" ] || continue
+    COUNT=$(wc -l < "$f" 2>/dev/null || echo 0)
+    TOTAL_RAW=$((TOTAL_RAW + COUNT))
+    echo "  $(basename "$f"): $COUNT 件"
+done
+echo "合計 (raw): $TOTAL_RAW 件"
+
 echo -e "${GREEN}✓ データ生成完了${NC}"
 
 # 3. 品質フィルタリング
@@ -163,39 +173,8 @@ python merge_outputs.py \
 # 5. HuggingFace Hub へのアップロード
 echo ""
 echo -e "${GREEN}[5/5] HuggingFace Hubへのアップロード...${NC}"
-
-# 最終レポート
-echo "=========================================="
-echo " Pipeline Complete!"
-echo " Finished: $(date)"
-echo "=========================================="
-echo ""
-
-TOTAL_FINAL=0
-for f in "$PROJECT_DIR/output/final/"*.jsonl; do
-    if [ -f "$f" ]; then
-        COUNT=$(wc -l < "$f")
-        TOTAL_FINAL=$((TOTAL_FINAL + COUNT))
-    fi
-done
-
-TOTAL_FILTERED=$(find "$PROJECT_DIR/output/filtered/" -name "*.jsonl" -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}')
-
-echo "最終結果:"
-echo "  Raw: $TOTAL_RAW 件"
-echo "  Filtered: ${TOTAL_FILTERED:-0} 件"
-echo "  Final: $TOTAL_FINAL 件"
-echo ""
-echo "出力ディレクトリ: $PROJECT_DIR/output/final/"
-echo "レポート: $PROJECT_DIR/output/final/dataset_report.json"
-echo ""
-
-# 5. HuggingFace Hubへのアップロード
-echo "=== Step 5: HuggingFaceアップロード ==="
 if [ -f "$PROJECT_DIR/output/final/qwen-reasoning-dataset.jsonl" ]; then
-    echo "HuggingFace Hubへアップロードを開始します..."
     echo "リポジトリ: $HF_REPO_ID"
-    
     python upload_to_hf.py \
         --repo-id "$HF_REPO_ID" \
         --data-dir "$PROJECT_DIR/output/final" \
@@ -203,10 +182,32 @@ if [ -f "$PROJECT_DIR/output/final/qwen-reasoning-dataset.jsonl" ]; then
         --token "$HF_TOKEN" \
         --private \
         2>&1 | tee "$LOG_DIR/upload_$TIMESTAMP.log"
-        
-    echo -e "${GREEN}アップロード処理が完了しました。${NC}"
+    echo -e "${GREEN}アップロード完了${NC}"
 else
     echo -e "${YELLOW}最終データセットが見つからないため、アップロードをスキップします。${NC}"
 fi
+
+# 最終レポート
+TOTAL_FINAL=0
+for f in "$PROJECT_DIR/output/final/"*.jsonl; do
+    [ -f "$f" ] || continue
+    COUNT=$(wc -l < "$f")
+    TOTAL_FINAL=$((TOTAL_FINAL + COUNT))
+done
+TOTAL_FILTERED=$(find "$PROJECT_DIR/output/filtered/" -name "*.jsonl" -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}')
+
+echo ""
+echo -e "${BLUE}==========================================${NC}"
+echo -e "${BLUE} Pipeline Complete!${NC}"
+echo -e "${BLUE} Finished: $(date)${NC}"
+echo -e "${BLUE}==========================================${NC}"
+echo ""
+echo "最終結果:"
+echo "  Raw:      $TOTAL_RAW 件"
+echo "  Filtered: ${TOTAL_FILTERED:-0} 件"
+echo "  Final:    $TOTAL_FINAL 件"
+echo ""
+echo "出力ディレクトリ: $PROJECT_DIR/output/final/"
+echo "レポート: $PROJECT_DIR/output/final/dataset_report.json"
 echo ""
 echo -e "${GREEN}✓ すべてのパイプライン処理が完了しました。${NC}"

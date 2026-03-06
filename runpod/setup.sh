@@ -131,6 +131,18 @@ except:
 print("OK (Qwen3_5ForConditionalGeneration 登録済み)" if has else "WARNING: Qwen3.5 未登録")
 ' 2>/dev/null || echo "確認スキップ"
 
+# ViT Flash Attention パッチ対象の事前確認
+# generate_reasoning.py の _patch_vllm_rocm_vit() が ROCm 7.2 クラッシュ回避のために
+# rocm.py を書き換える。vLLM のバージョンアップでパターンが変わった場合ここで検知する。
+echo -n "  ViT SDPA パッチ対象: "
+if grep -q 'Using Flash Attention backend for ViT model' "$VLLM_SRC/vllm/platforms/rocm.py" 2>/dev/null; then
+    echo "OK (パターン確認済み)"
+else
+    echo -e "${YELLOW}WARNING: rocm.py のパッチ対象パターンが見つかりません${NC}"
+    echo -e "${YELLOW}         vLLM のバージョンアップで rocm.py が変更された可能性があります。${NC}"
+    echo -e "${YELLOW}         generate_reasoning.py の _patch_vllm_rocm_vit() を更新してください。${NC}"
+fi
+
 # --- プロジェクトのセットアップ ---
 echo -e "\n${GREEN}[4/5] プロジェクトディレクトリのセットアップ...${NC}"
 PROJECT_DIR="/workspace/qwen3.5-27b-reasoning-dataset"
