@@ -136,6 +136,13 @@ class ReasoningGenerator:
         
         # クライアント
         self.api_base = config.get("api", {}).get("base_url", "http://localhost:8000/v1")
+        
+        # 複数インスタンス (MI300X 並列ロード) 対応: worker_id に応じてポートを振り分け (最大4インスタンス)
+        base_port = 8000
+        port = base_port + (worker_id % 4)
+        if "localhost" in self.api_base or "127.0.0.1" in self.api_base:
+            self.api_base = f"http://localhost:{port}/v1"
+            
         self.model_name = config.get("api", {}).get("model_name", "Qwen/Qwen3.5-27B")
         self.client = openai.AsyncOpenAI(
             api_key="EMPTY",
@@ -144,10 +151,10 @@ class ReasoningGenerator:
             max_retries=5
         )
 
-        self.concurrency_max_limit = config.get("api", {}).get("concurrency_max_limit", 128)
+        self.concurrency_max_limit = config.get("api", {}).get("concurrency_max_limit", 16)
         self.concurrency_target_latency = config.get("api", {}).get("concurrency_target_latency", 45.0)
-        # 初期並行数は上限の半分程度からスタート
-        self.current_concurrency = max(8, self.concurrency_max_limit // 2)
+        # 初期並行数は llama-server の -np 16 に合わせる
+        self.current_concurrency = 16
 
         # 出力ディレクトリ
         self.output_dir = Path(config["output"]["raw_dir"])

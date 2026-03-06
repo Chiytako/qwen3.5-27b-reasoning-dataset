@@ -81,18 +81,31 @@ fi
 
 # 3. 超並列データ生成 (API クライアント)
 echo ""
-echo -e "${GREEN}[3/5] データ生成開始 (Llama.cpp Async API)${NC}"
-echo "ログは $LOG_DIR/generation_$TIMESTAMP.log に出力されます"
+echo -e "${GREEN}[3/5] データ生成開始 (Llama.cpp Async API - 4 Workers)${NC}"
+echo "ログは $LOG_DIR/generation_${TIMESTAMP}_worker_*.log に出力されます"
 echo ""
 
-# APIクライアントとしてスクリプトを実行
-python runpod/generate_reasoning.py \
-    --config "$CONFIG" \
-    --worker-id 0 \
-    2>&1 | tee "$LOG_DIR/generation_$TIMESTAMP.log"
+NUM_WORKERS=4
+PIDS=""
 
-if [ ${PIPESTATUS[0]} -ne 0 ]; then
-    echo -e "${RED}❌ データ生成プロセスが異常終了しました。${NC}"
+# APIクライアントとしてスクリプトを複数ワーカーで並行実行
+for i in $(seq 0 $((NUM_WORKERS - 1))); do
+    echo "Worker $i を起動中... (ログ: generation_${TIMESTAMP}_worker_${i}.log)"
+    python runpod/generate_reasoning.py \
+        --config "$CONFIG" \
+        --worker-id $i \
+        > "$LOG_DIR/generation_${TIMESTAMP}_worker_${i}.log" 2>&1 &
+    PIDS="$PIDS $!"
+done
+
+echo "すべてのWorkerの完了を待機しています..."
+WAIT_ERROR=0
+for PID in $PIDS; do
+    wait $PID || WAIT_ERROR=1
+done
+
+if [ $WAIT_ERROR -ne 0 ]; then
+    echo -e "${RED}❌ データ生成プロセスの一部が異常終了しました。ログを確認してください。${NC}"
     exit 1
 fi
 
