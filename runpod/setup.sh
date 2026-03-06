@@ -2,6 +2,7 @@
 # =============================================================================
 # Runpod 環境セットアップスクリプト
 # AMD MI300X 192GB 用
+# Template: RunPod PyTorch 2.9.1 ROCm 7.2 (Python 3.12)
 # =============================================================================
 set -e
 
@@ -15,69 +16,70 @@ NC='\033[0m'
 echo -e "${BLUE}==========================================${NC}"
 echo -e "${BLUE} Qwen3.5-27B Reasoning Dataset Generator${NC}"
 echo -e "${BLUE} Setup Script (AMD MI300X 192GB)${NC}"
+echo -e "${BLUE} ROCm 7.2 + PyTorch 2.9.1 Template${NC}"
 echo -e "${BLUE}==========================================${NC}"
 echo ""
 
 # --- システム更新 ---
 echo -e "${GREEN}[1/5] システムパッケージの更新...${NC}"
-apt-get update -qq && apt-get install -y -qq git wget curl htop tmux > /dev/null 2>&1 || echo -e "${YELLOW}  一部のパッケージの更新をスキップしました。${NC}" || true
+apt-get update -qq && apt-get install -y -qq git wget curl htop tmux > /dev/null 2>&1 \
+    || echo -e "${YELLOW}  一部のパッケージの更新をスキップしました。${NC}" || true
 
 # --- Python環境 ---
 echo -e "\n${GREEN}[2/5] Python仮想環境のセットアップ...${NC}"
-python3 -m venv --system-site-packages /workspace/venv
+# ROCm 7.2 テンプレートには PyTorch 2.9.1 がシステムにプリインストール済み
+# vLLM ROCm wheel は互換 PyTorch を同梱するため、venv は独立した環境として作成
+python3 -m venv /workspace/venv
 source /workspace/venv/bin/activate
+echo "  Python: $(python3 --version)"
 
 # --- 依存パッケージのインストール ---
-echo -e "\n${GREEN}[3/5] 依存パッケージのインストール (進捗は以下に表示されます)...${NC}"
-python3 -m pip install --upgrade pip
-# 【重要】依存解決によって40分フリーズするpipの弱点を解決するため、Rust製の超高速パッケージマネージャ「uv」を導入
-python3 -m pip install uv
+echo -e "\n${GREEN}[3/5] vLLM + 依存パッケージのインストール...${NC}"
+python3 -m pip install --upgrade pip --quiet
+# uv: pip の依存解決フリーズを防ぐ超高速パッケージマネージャ
+python3 -m pip install uv --quiet
 
-# 軽量ライブラリ群のインストール (uvを使うと数秒で終わります)
-uv pip install transformers>=4.48.0 pyyaml tqdm datasets huggingface_hub
+# 軽量ライブラリ (数秒で完了)
+echo "  軽量ライブラリをインストール中..."
+uv pip install transformers>=4.48.0 pyyaml tqdm datasets huggingface_hub --quiet
 
-# vLLM (ROCm向けソースビルド)
+# vLLM ROCm 公式 pre-built wheel
 # 背景:
-#   - PyPI の vllm パッケージは CUDA 専用ビルドであり ROCm では動作しない
-#   - PyPI の vllm-rocm は 0.6.3 止まりで Qwen3.5 (Qwen3_5ForConditionalGeneration) 未対応
-#   - wheels.vllm.ai の ROCm ホイールは ROCm 7.0 + Python 3.12 のみ対象
-#   - Qwen3.5 対応は vLLM v0.17.0 (未リリース) / nightly ビルドで提供
-#   → ROCm 6.x + Python 3.10 環境では ソースビルドが唯一の確実な手段
-echo -e "\n${YELLOW}vLLM を ROCm 向けにソースビルドします (30〜60分かかります)...${NC}"
-# ROCm 対応 PyTorch を先にインストール (pip install vllm の依存として上書きされないよう先行インストール)
-uv pip install "torch==2.4.0" "torchvision==0.19.0" "torchaudio==2.4.0" \
-    --index-url https://download.pytorch.org/whl/rocm6.1
-# vLLM ソース取得 (既にクローン済みの場合は pull のみ)
-VLLM_SRC="/workspace/vllm-src"
-if [ -d "$VLLM_SRC/.git" ]; then
-    git -C "$VLLM_SRC" pull --ff-only
-else
-    git clone https://github.com/vllm-project/vllm.git "$VLLM_SRC"
-fi
-# ビルドに必要な依存パッケージを先行インストール
-# setuptools 65.x は pyproject.toml の PEP 639 ライセンス形式を解釈できないためアップグレード必須
-# cmake は 4.0以降 cmake_minimum_required(VERSION < 3.5) を含む ROCm の hip-config.cmake を拒否するため 3.x に固定
-pip install --upgrade setuptools setuptools_scm wheel ninja "cmake<4.0"
-# ROCm ターゲットでビルド・インストール
-# PYTORCH_ROCM_ARCH=gfx942: MI300X専用ビルド（他アーキテクチャのコンパイルを省略して高速化）
-cd "$VLLM_SRC"
-CMAKE_POLICY_VERSION_MINIMUM=3.5 PYTORCH_ROCM_ARCH=gfx942 VLLM_TARGET_DEVICE=rocm MAX_JOBS=8 pip install -e . --no-build-isolation
-cd -
+#   - ROCm 7.2 + Python 3.12 環境では wheels.vllm.ai の公式 ROCm ホイールが利用可能
+#   - ソースビルド (30〜60分) が不要で数分でインストール完了
+#   - このホイールは ROCm 対応 PyTorch を同梱しており、バージョン互換性は保証済み
+#   - AMD は Qwen3.5 の Day 0 サポートを公式に提供 (https://www.amd.com)
+echo -e "\n${YELLOW}vLLM ROCm pre-built wheel をインストール中 (数分で完了します)...${NC}"
+uv pip install vllm --extra-index-url https://wheels.vllm.ai/rocm/
 
-echo -n "  vLLMバージョン: " && python3 -c 'import vllm; print(vllm.__version__)'
-echo -n "  PyTorchバージョン: " && python3 -c 'import torch; print(torch.__version__)'
+echo ""
+echo -n "  vLLM バージョン:   " && python3 -c 'import vllm; print(vllm.__version__)'
+echo -n "  PyTorch バージョン: " && python3 -c 'import torch; print(torch.__version__)'
+echo -n "  ROCm バージョン:   " && python3 -c 'import torch; print(getattr(torch.version, "hip", "N/A"))'
+
+# Qwen3.5 (Qwen3_5ForConditionalGeneration) サポート確認
+echo -n "  Qwen3.5 サポート:  "
+python3 -c '
+from vllm.model_executor.models import ModelRegistry
+if "Qwen3_5ForConditionalGeneration" in ModelRegistry._model_registry:
+    print("OK (Qwen3_5ForConditionalGeneration 登録済み)")
+else:
+    # 全 Qwen 系モデルを表示してデバッグ
+    qwen_models = [k for k in ModelRegistry._model_registry if "Qwen" in k]
+    print("WARNING: Qwen3.5 未登録。登録済み Qwen モデル:", qwen_models)
+' 2>/dev/null || echo "確認スキップ (実行時に確認してください)"
 
 # --- プロジェクトのセットアップ ---
 echo -e "\n${GREEN}[4/5] プロジェクトディレクトリのセットアップ...${NC}"
 PROJECT_DIR="/workspace/qwen3.5-27b-reasoning-dataset"
 
-# 出力ディレクトリ作成
 mkdir -p "$PROJECT_DIR/output/raw"
 mkdir -p "$PROJECT_DIR/output/filtered"
 mkdir -p "$PROJECT_DIR/output/final"
 mkdir -p "$PROJECT_DIR/output/checkpoints"
 mkdir -p "$PROJECT_DIR/output/rejected"
 mkdir -p "$PROJECT_DIR/logs"
+echo "  出力ディレクトリ作成完了: $PROJECT_DIR"
 
 # --- モデルの事前ダウンロード ---
 echo -e "\n${GREEN}[5/5] Qwen3.5-27B フルモデル事前ダウンロード...${NC}"
@@ -94,7 +96,8 @@ print('ダウンロード完了!')
 
 # --- GPU確認 ---
 echo -e "\n${GREEN}[GPU状態の確認]...${NC}"
-rocm-smi --showid --showproductname --showmeminfo vram 2>/dev/null || nvidia-smi --query-gpu=index,name,memory.total,memory.free,driver_version --format=csv,noheader
+rocm-smi --showid --showproductname --showmeminfo vram 2>/dev/null \
+    || nvidia-smi --query-gpu=index,name,memory.total,memory.free,driver_version --format=csv,noheader
 echo ""
 
 echo ""
@@ -103,10 +106,10 @@ echo -e "${GREEN} ✓ セットアップ完了!${NC}"
 echo -e "${BLUE}==========================================${NC}"
 echo ""
 echo -e "GPU構成: ${YELLOW}AMD MI300X 192GB x1${NC}"
-echo -e "モデル: ${YELLOW}Qwen3.5-27B フルパラメータ (~54GB/GPU)${NC}"
-echo -e "実行方式: ${YELLOW}venv仮想環境 + vllm-rocm公式パッケージ${NC}"
+echo -e "環境:    ${YELLOW}PyTorch (vLLM同梱版) + ROCm 7.2 pre-built wheel${NC}"
+echo -e "モデル:  ${YELLOW}Qwen3.5-27B フルパラメータ (~54GB/GPU)${NC}"
 echo ""
 echo -e "${GREEN}次のステップ:${NC}"
 echo "  生成プロセスの開始:"
-echo -e "     ${YELLOW}bash runpod/run_pipeline.sh${NC}"
+echo -e "     ${YELLOW}source /workspace/venv/bin/activate && bash runpod/run_pipeline.sh${NC}"
 echo ""
