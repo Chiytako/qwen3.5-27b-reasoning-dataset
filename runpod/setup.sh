@@ -22,7 +22,7 @@ echo ""
 
 # --- システム更新 ---
 echo -e "${GREEN}[1/5] システムパッケージの更新...${NC}"
-apt-get update -qq && apt-get install -y -qq git wget curl htop tmux > /dev/null 2>&1 \
+apt-get update -qq && apt-get install -y -qq git wget curl htop tmux ninja-build > /dev/null 2>&1 \
     || echo -e "${YELLOW}  一部のパッケージの更新をスキップしました。${NC}" || true
 
 # --- Python環境 ---
@@ -51,8 +51,8 @@ cd /workspace/llama.cpp
 git pull origin master
 
 echo "  llama.cpp を MI300X (gfx942) ネイティブ ROCm バックエンドでコンパイル中..."
-# AMD MI300X 向けの最適化 CMake フラグ
-cmake -B build -DGGML_HIP=ON -DAMDGPU_TARGETS=gfx942
+# AMD MI300X 向けの最適化 CMake フラグ (-G Ninja で超高速並列ビルド)
+cmake -B build -G Ninja -DGGML_HIP=ON -DAMDGPU_TARGETS=gfx942
 cmake --build build --config Release -j $(nproc)
 
 echo ""
