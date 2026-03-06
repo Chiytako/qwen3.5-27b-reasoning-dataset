@@ -55,7 +55,8 @@ else
     git clone https://github.com/vllm-project/vllm.git "$VLLM_SRC"
 fi
 # ビルドに必要な依存パッケージを先行インストール
-pip install setuptools_scm wheel ninja cmake
+# setuptools 65.x は pyproject.toml の PEP 639 ライセンス形式を解釈できないためアップグレード必須
+pip install --upgrade setuptools setuptools_scm wheel ninja cmake
 # ROCm ターゲットでビルド・インストール
 cd "$VLLM_SRC"
 VLLM_TARGET_DEVICE=rocm pip install -e . --no-build-isolation
