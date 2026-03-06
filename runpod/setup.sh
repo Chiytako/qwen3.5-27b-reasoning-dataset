@@ -37,16 +37,15 @@ python3 -m pip install uv
 uv pip install transformers>=4.48.0 pyyaml tqdm datasets huggingface_hub
 
 # vLLM (ROCm対応版) のインストール
-if ! python3 -c "import vllm" &> /dev/null; then
-    echo -e "\n${YELLOW}公式のvllm-rocmホイールと、安定版のPyTorchをインストールします...${NC}"
-    # RunpodのプレインストールPyTorch(dev版)はvLLMのバージョンチェックに弾かれクラッシュするため、
-    # ROCm 6.1対応の「正式な安定版PyTorch 2.4.0」を明示的にインストールします。
-    # （uvを通すことで依存関係の迷走がなくなり、40分かかっていた解決が1秒未満で終わります）
-    uv pip install "torch==2.4.0" "torchvision==0.19.0" "torchaudio==2.4.0" --index-url https://download.pytorch.org/whl/rocm6.1
-    
-    # 互換性を持つようになった環境にvLLMをインストール
-    uv pip install vllm-rocm
-fi
+# Qwen3.5 (Qwen3_5ForConditionalGeneration) のサポートには最新vLLMが必要。
+# vllm-rocm (旧コミュニティ版) は古くQwen3.5未対応のため、公式vllmに切り替える。
+# 最新vLLMはROCmサポートを同梱しており別パッケージ不要。
+echo -e "\n${YELLOW}vLLM (最新版・ROCm組み込み) をインストールします...${NC}"
+# PyTorch ROCm: 最新vLLMが要求するバージョンに合わせる
+# （uvを通すことで依存関係の迷走がなくなり、40分かかっていた解決が1秒未満で終わります）
+uv pip install "torch" "torchvision" "torchaudio" --index-url https://download.pytorch.org/whl/rocm6.2
+# 公式vLLMを最新版でインストール（Qwen3.5対応版）
+uv pip install vllm --upgrade
 
 echo -n "  vLLMバージョン: " && python3 -c 'import vllm; print(vllm.__version__)'
 echo -n "  PyTorchバージョン: " && python3 -c 'import torch; print(torch.__version__)'
