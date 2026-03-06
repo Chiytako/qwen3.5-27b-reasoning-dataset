@@ -179,7 +179,7 @@ class ReasoningGenerator:
             dtype="auto",
             quantization=self.config["model"].get("quantization", None),
             enforce_eager=True,   # DeltaNet層のdtypeバグ回避に必須 (vLLM Issue#35238)
-            device="cuda",        # MI300X/ROCm環境でもPyTorchレイヤーではcudaとして認識されるため明示的指定が必須
+            # device="cuda" は vLLM 0.17.0 で EngineArgs から削除されたため省略
             limit_mm_per_prompt={"image": 0, "video": 0},  # Qwen3.5はVLMだがテキスト生成のみ使用するためビジョンエンコーダを無効化
         )
 
